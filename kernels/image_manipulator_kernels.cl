@@ -15,9 +15,11 @@ __kernel void convert_grayscale(__global unsigned char* img_data, __global unsig
 
 __kernel void apply_moving_filter(const int height, const int width, const int GAUSSIAN_SIZE, __global unsigned char* img_data, __global float* gaussian_filter_matrix, __global unsigned char* out)
 {	
+    // get work item id (both dimensions)
 	int i = get_global_id(0);
 	int j = get_global_id(1);
 
+    // Gaussian blur with 5x5 moving filter
 	if ((i < height) && (j < width))
     {
 		float sum = 0.0f;
@@ -33,6 +35,9 @@ __kernel void apply_moving_filter(const int height, const int width, const int G
                 {
                     continue;
                 }
+
+                // Add up the values of the pixels around the current one,
+                // while applying weights to each pixel based on the the gaussian kernel matrix
                 sum += gaussian_filter_matrix[k * GAUSSIAN_SIZE + l] * (float)img_data[y * width + x];
             }
         }

@@ -17,7 +17,7 @@ The Lodepng library was imported as a submodule with the intention to decode and
 
 ## Phase 0 (3 hours)
 To get familiar with OpenCL, the [linked video](https://www.youtube.com/playlist?list=PLzy5q1NUJKCJocUKsRxZ0IPz29p38xeM-) tutorial series was watched. Watching the videos and following along, while also doing some online exploration took around 3 hours. 
-## Phase 1 ()
+## Phase 1 (27 hours)
 ### Step 1 (9 hours)
 The **CPU_Moving_Filter** project contains the code for step 1 (lodepng read/write, grayscale and resize). 
 The code also implements a 5x5 Gaussian blur moving filter on CPU. 
@@ -67,4 +67,39 @@ The OpenCL code can be viewed in [matrix_addition.cpp](matrix_addition.cpp), whi
 
 This step took around 8.5 hours, due to this being the first real attempt at OpenCL.
 
-### Step 3 ()
+### Step 3 (5.5)
+Step three made use of all the knowledge obtained previously in this phase to create an OpenCL implementation, which converts an image to grayscale and applies a 5x5 moving filter, similarly to step 1.
+However, no resizing was applied in this case.
+Two kernels were created for this implementation. The first one, would take an iamge as an input and convert it to grayscale, while the second oneand would take the output of the previous kernel as an input, together with an gaussian filter matrix and apply the latter to the former, so as to achieve Gaussian blur.
+It's important to note that the two kernels were kept in one kernel file, as C++ did not allow for them to be input separetely.
+
+The OpenCl implementation is in the **OpenCL_Moving_Filter** project.
+After decoding the raw image, similarly to step 1, it was passed to the first kernel.
+As this implementation did not make use of a for loop, iterating every four indexes had to be done in a diffent way.
+Each work item would check whether its ID is a multiple of four.
+If it is, it would add up its own value and the next two ones, essentially adding up the R, G and B channels.
+If not, it would just skip over to the next work item.
+
+The second kernel did not need to change the moving filter code with the exclusion that it removed the iterations over the width and height of the image, similarly to the kernel from the previous step.
+
+As the image was basically a 2D array it could be seen as a matrix from the previous step.
+This meant that it had to be handled in a similar way.
+
+The final result was encoded and can be found [here](img/imCV_out.png).
+As the image is not resized, the blur is not as noticable, but can be seen if closely inspected.
+
+The following information is printed on execution. 
+
+![](diary_img/image_manipulation_opencl.png "Execution time and hw info of OpenCL program")
+
+As can be seen, loading and saving the image takes much more time than the OpenCL-enabled processing functions.
+Expectidely, the grayscale conversion is faster than the gaussian filter.
+The bus transfer time, while reading the processed image, is also shown for both kernels.
+
+The OpenCL code can be investigated in [image_manipulator.cpp](image_manipulator.cpp), while the kernels can be seen in [kernels/image_manipulator_kernels.cl](kernels/image_manipulator_kernels.cl).
+
+This step took around 5.5 hours.
+
+The whole phase took 27 hours, as an additional 4 hours were spent documenting the whole journey so far :)
+
+## Phase 2 ()
