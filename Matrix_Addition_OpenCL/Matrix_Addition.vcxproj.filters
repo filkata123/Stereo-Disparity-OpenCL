@@ -15,10 +15,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="lodepng\lodepng.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="image_manipulator.cpp">
+    <ClCompile Include="..\matrix_addition.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

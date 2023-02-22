@@ -3,6 +3,8 @@
 
 #include <lodepng.h>
 
+
+// gaussian kernel as seen in https://www.codingame.com/playgrounds/2524/basic-image-manipulation/filtering
 const int GAUSSIAN_SIZE = 5;
 const float gaussian_filter_matrix[GAUSSIAN_SIZE * GAUSSIAN_SIZE] =
 {
@@ -15,18 +17,23 @@ const float gaussian_filter_matrix[GAUSSIAN_SIZE * GAUSSIAN_SIZE] =
 
 std::vector<unsigned char> rgb_to_grayscale(std::vector<unsigned char> image, unsigned int width, unsigned int height)
 {
+	// output image vector will only have one channel for grayscale, so size needs to be equal to resolution
 	std::vector<unsigned char> imageGray(width * height);
-	size_t count = 0;
-	for (size_t i = 0; i < image.size(); i += 4)
-	{
-		imageGray[count++] = (image[i + 0] + image[i + 1] + image[i + 2]) / 3;
-	}
 
+	// iterate over every four values, as input is 4 channeled RGBA
+	char channel = 4;
+	for (size_t i = 0; i < image.size(); i += channel)
+	{
+		// Add up R, G and B values and divide to get grayscale value.
+		// We don't care about the A value, so it is not used.
+		imageGray[i / channel] = (image[i + 0] + image[i + 1] + image[i + 2]) / 3;
+	}
 	return imageGray;
 }
 
 std::vector<unsigned char> image_resize_16(std::vector<unsigned char> image, unsigned int width, unsigned int height)
 {
+	// Divide image into 4x4 blocks and then use the average value of said blocks as the value of the new pixel
 	std::vector<unsigned char> imageResized((width * height) / 16);
 	for (int i = 0; i < height / 4; ++i)
 	{
@@ -49,7 +56,7 @@ std::vector<unsigned char> gaussian_filter(std::vector<unsigned char> image, uns
 {
 	std::vector<unsigned char> imageGauss(width * height);
 
-	// perform the convolution
+	// Gaussian blur with 5x5 moving filter
 	for (int i = 0; i < height; i++)
 	{
 		for (int j = 0; j < width; j++)
@@ -68,6 +75,8 @@ std::vector<unsigned char> gaussian_filter(std::vector<unsigned char> image, uns
 						continue;
 					}
 
+					// Add up the values of the pixels around the current one,
+					// while applying weights to each pixel based on the the gaussian kernel matrix
 					int index = y * width + x;
 					sum += gaussian_filter_matrix[k * GAUSSIAN_SIZE + l] * static_cast<float>(image[index]);
 				}
@@ -80,17 +89,19 @@ std::vector<unsigned char> gaussian_filter(std::vector<unsigned char> image, uns
 	return imageGauss;
 }
 
-int decode()
+int main()
 {
-	const char* firstImgName = "img/im0.png";
-	const char* secondImgName = "img/im1.png";
+	// setup inputs and outputs
+	const char* firstImgName = "../img/im0.png";
+	const char* secondImgName = "../img/im1.png";
 
-	const char* firstImgNameOut = "img/im0_out.png";
-	const char* secondImgNameOut = "img/im1_out.png";
+	const char* firstImgNameOut = "../img/im0_out.png";
+	const char* secondImgNameOut = "../img/im1_out.png";
 
-	const char* firstImgNameGaussOut = "img/im0_gauss_out.png";
-	const char* secondImgNameGaussOut = "img/im1_gauss_out.png";
+	const char* firstImgNameGaussOut = "../img/im0_gauss_out.png";
+	const char* secondImgNameGaussOut = "../img/im1_gauss_out.png";
 
+	// create containers for raw images
 	std::vector<unsigned char> firstImage;
 	std::vector<unsigned char> secondImage;
 	unsigned int width, height;
@@ -110,25 +121,25 @@ int decode()
 	std::vector<unsigned char> firstImageGrayResized = image_resize_16(firstImageGray, width, height);
 	std::vector<unsigned char> secondImageGrayResized = image_resize_16(secondImageGray, width, height);
 
-	unsigned int resizedWidth = width / 4, resizedHeight = height / 4;
+	// update stored resolution
+	width = width / 4;
+	height = height / 4;
 
-	// encode images
-	error = lodepng::encode(firstImgNameOut, firstImageGrayResized, resizedWidth, resizedHeight, LCT_GREY, 8);
+	// encode resized and grayscaled images (im*_out)
+	error = lodepng::encode(firstImgNameOut, firstImageGrayResized, width, height, LCT_GREY, 8);
 	if (error) std::cout << "encoder error first image: " << error << ": " << lodepng_error_text(error) << std::endl;
 
-	error = lodepng::encode(secondImgNameOut, secondImageGrayResized, resizedWidth, resizedHeight, LCT_GREY, 8);
+	error = lodepng::encode(secondImgNameOut, secondImageGrayResized, width, height, LCT_GREY, 8);
 	if (error) std::cout << "encoder error second image: " << error << ": " << lodepng_error_text(error) << std::endl;
 
-	// apply 5x5 moving filter (gaussian blur)
-	std::vector<unsigned char> firstImageGaussian = gaussian_filter(firstImageGrayResized, resizedWidth, resizedHeight);
-	std::vector<unsigned char> secondImageGaussian = gaussian_filter(secondImageGrayResized, resizedWidth, resizedHeight);
+	// apply 5x5 moving filter (gaussian blur) to processed images
+	std::vector<unsigned char> firstImageGaussian = gaussian_filter(firstImageGrayResized, width, height);
+	std::vector<unsigned char> secondImageGaussian = gaussian_filter(secondImageGrayResized, width, height);
 
-	// encode blurred images
-	error = lodepng::encode(firstImgNameGaussOut, firstImageGaussian, resizedWidth, resizedHeight, LCT_GREY, 8);
+	// encode blurred images (im*_gauss_out)
+	error = lodepng::encode(firstImgNameGaussOut, firstImageGaussian, width, height, LCT_GREY, 8);
 	if (error) std::cout << "encoder error first image: " << error << ": " << lodepng_error_text(error) << std::endl;
 
-	error = lodepng::encode(secondImgNameGaussOut, secondImageGaussian, resizedWidth, resizedHeight, LCT_GREY, 8);
+	error = lodepng::encode(secondImgNameGaussOut, secondImageGaussian, width, height, LCT_GREY, 8);
 	if (error) std::cout << "encoder error first image: " << error << ": " << lodepng_error_text(error) << std::endl;
-
-	return 1;
 }

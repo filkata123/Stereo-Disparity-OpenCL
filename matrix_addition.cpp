@@ -11,7 +11,7 @@
 #include <fstream>
 #include <iostream>
 
-int matrix_add()
+int main()
 {
 	// Setup matrices
 	int rows = 100;
@@ -56,7 +56,7 @@ int matrix_add()
 		auto devVersion = device.getInfo<CL_DEVICE_VERSION>();
 		auto devInfo = device.getInfo<CL_DEVICE_NAME>();
 
-		std::ifstream passed_file("kernels/add_matrix.cl");
+		std::ifstream passed_file("../kernels/add_matrix.cl");
 		std::string src(std::istreambuf_iterator<char>(passed_file), (std::istreambuf_iterator<char>()));
 
 		cl::Program::Sources sources(1, std::make_pair(src.c_str(), src.length() + 1));
@@ -129,6 +129,4 @@ int matrix_add()
 	delete[] A;
 	delete[] B;
 	delete[] C;
-
-	return 1; //temp
 }

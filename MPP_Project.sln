@@ -3,7 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.4.33213.308
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MPP_Project", "MPP_Project.vcxproj", "{9613F8AD-7F68-44E8-9A2B-7CF1C4317669}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OpenCL_Moving_Filter", "MPP_Project.vcxproj", "{9613F8AD-7F68-44E8-9A2B-7CF1C4317669}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "CPU_Moving_Filter", "CPU_Moving_Filter\CPU_Moving_Filter.vcxproj", "{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Matrix_Addition", "Matrix_Addition\Matrix_Addition.vcxproj", "{E5F889AE-1241-4E0D-B13E-91F79583A1DD}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -21,6 +25,22 @@ Global
 		{9613F8AD-7F68-44E8-9A2B-7CF1C4317669}.Release|x64.Build.0 = Release|x64
 		{9613F8AD-7F68-44E8-9A2B-7CF1C4317669}.Release|x86.ActiveCfg = Release|Win32
 		{9613F8AD-7F68-44E8-9A2B-7CF1C4317669}.Release|x86.Build.0 = Release|Win32
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Debug|x64.ActiveCfg = Debug|x64
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Debug|x64.Build.0 = Debug|x64
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Debug|x86.ActiveCfg = Debug|Win32
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Debug|x86.Build.0 = Debug|Win32
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Release|x64.ActiveCfg = Release|x64
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Release|x64.Build.0 = Release|x64
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Release|x86.ActiveCfg = Release|Win32
+		{550B79CD-59D5-4383-AB1D-C6BD2FA4F1EF}.Release|x86.Build.0 = Release|Win32
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Debug|x64.ActiveCfg = Debug|x64
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Debug|x64.Build.0 = Debug|x64
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Debug|x86.ActiveCfg = Debug|Win32
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Debug|x86.Build.0 = Debug|Win32
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Release|x64.ActiveCfg = Release|x64
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Release|x64.Build.0 = Release|x64
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Release|x86.ActiveCfg = Release|Win32
+		{E5F889AE-1241-4E0D-B13E-91F79583A1DD}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
