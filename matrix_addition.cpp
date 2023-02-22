@@ -11,7 +11,7 @@
 #include <fstream>
 #include <iostream>
 
-int main()
+int matrix_add()
 {
 	// Setup matrices
 	int rows = 100;
@@ -130,4 +130,5 @@ int main()
 	delete[] B;
 	delete[] C;
 
+	return 1; //temp
 }

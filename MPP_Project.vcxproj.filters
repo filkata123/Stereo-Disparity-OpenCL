@@ -24,5 +24,8 @@
     <ClCompile Include="matrix_addition.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="image_manipulator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

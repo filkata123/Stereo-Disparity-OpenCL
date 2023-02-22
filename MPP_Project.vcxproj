@@ -20,6 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="image_decoder.cpp" />
+    <ClCompile Include="image_manipulator.cpp" />
     <ClCompile Include="lodepng\lodepng.cpp" />
     <ClCompile Include="matrix_addition.cpp" />
   </ItemGroup>
