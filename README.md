@@ -43,4 +43,28 @@ As can be seen below, the image is considerably blurrier.
 The images are then decoded with lodepng. 
 The results are displayed above.
 
-### Step 2 ()
+Pure code can be found in [moving_filter.cpp](moving_filter.cpp).
+
+This step took 9 hours, as the writer is not familiar with image processing.
+
+### Step 2 (8.5 hours)
+Step two is divided into two parts - implementing matrix addition with C on the CPU and then implementing the same with OpenCL on the GPU.
+The C code can be found in the [Matrix_Addition_C](Matrix_Addition_C/) folder (together with compilation instructions).
+It makes use of Windows.h's QueryPerformanceCounter functionality to track how long matrix addition takes.
+The resulting time is shown below.
+
+![](diary_img/matrix_addition_c.png "Execution time of C program")
+
+The OpenCL implementation is in the **Matrix_Addition_OpenCL** project.
+An issue encountered was trying to pass a 2D dynamic array into the buffer.
+To resolve this issue, the array was flattend into a pointer to a 1D array.
+The dimensions from the perspective of the kernel were still 2, but this is done so that the kernel has access to the rows and columns.
+Implementing matrix addition with OpenCL made execution around 10 times faster, as seen below.
+
+![](diary_img/matrix_addition_opencl.png "Execution time of OpenCL program")
+
+The OpenCL code can be viewed in [matrix_addition.cpp](matrix_addition.cpp), while the respective kernel used in [kernels/add_matrix.cl](kernels/add_matrix.cl).
+
+This step took around 8.5 hours, due to this being the first real attempt at OpenCL.
+
+### Step 3 ()
