@@ -67,7 +67,7 @@ The OpenCL code can be viewed in [matrix_addition.cpp](matrix_addition.cpp), whi
 
 This step took around 8.5 hours, due to this being the first real attempt at OpenCL.
 
-### Step 3 (5.5)
+### Step 3 (5.5 hours)
 Step three made use of all the knowledge obtained previously in this phase to create an OpenCL implementation, which converts an image to grayscale and applies a 5x5 moving filter, similarly to step 1.
 However, no resizing was applied in this case.
 Two kernels were created for this implementation. The first one, would take an iamge as an input and convert it to grayscale, while the second oneand would take the output of the previous kernel as an input, together with an gaussian filter matrix and apply the latter to the former, so as to achieve Gaussian blur.
@@ -103,3 +103,5 @@ This step took around 5.5 hours.
 The whole phase took 27 hours, as an additional 4 hours were spent documenting the whole journey so far :)
 
 ## Phase 2 ()
+
+3:30 hours for zncc algorithms check
