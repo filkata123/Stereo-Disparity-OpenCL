@@ -105,3 +105,4 @@ The whole phase took 27 hours, as an additional 4 hours were spent documenting t
 ## Phase 2 ()
 
 3:30 hours for zncc algorithms check
+12 hours zncc pipeline (not working perfectly)

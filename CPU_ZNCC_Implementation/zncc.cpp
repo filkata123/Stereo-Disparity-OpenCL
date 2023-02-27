@@ -4,155 +4,209 @@
 #include <iostream>
 #include <math.h> 
 #include <vector>
+#include <Windows.h>
 
 
-
-void zncc_disparity(const std::vector<unsigned char> left_img, const std::vector<unsigned char> right_img, const int& width, const int& height, const int& win_size, const int& max_disp, std::vector<double>& disp_map)
+void GrayScaleImageConversion(const std::vector<unsigned char>& image, unsigned int width, unsigned int height, std::vector<unsigned char>& imageGray)
 {
-    // Allocate memory for the disparity map
-    disp_map.resize(width * height, 0.0);
+    // iterate over every four values, as input is 4 channeled RGBA
+    char channel = 4;
+    for (size_t i = 0; i < image.size(); i += channel)
+    {
+        // Add up R, G and B values and divide to get grayscale value.
+        // We don't care about the A value, so it is not used.
+        imageGray[i / channel] = (image[i + 0] + image[i + 1] + image[i + 2]) / 3;
+    }
+}
 
-    // Loop over all pixels
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+void ResizeImage(std::vector<unsigned char> image, unsigned int width, unsigned int height, unsigned int resizeFactor, std::vector<unsigned char>& imageResized)
+{
+    // Divide image into resizeFactor x resizeFactor blocks and then use the average value of said blocks as the value of the new pixel
+    imageResized.resize((width * height) / (resizeFactor * resizeFactor));
 
-            // Check if the current pixel is near the border
-            if (x < win_size / 2 || x >= width - win_size / 2 || y < win_size / 2 || y >= height - win_size / 2) {
-                disp_map[y * width + x] = max_disp;
-                continue;
-            }
+    int newWidth = width / resizeFactor;
+    int newHeight = height / resizeFactor;
 
-            // Initialize the maximum correlation and the best disparity for the current pixel
-            double max_corr = -1.0;
-            int best_disp = 0;
-
-            // Loop over all possible disparities up to the maximum disparity
-            for (int disp = 0; disp <= max_disp && x - disp >= win_size / 2; disp++) {
-
-                // Compute the correlation between the two windows centered at the current pixel and its corresponding pixel in the other 
-                double sum1 = 0.0, sum2 = 0.0, sum12 = 0.0;
-
-                // Loop over all pixels inside the window
-                for (int dy = -win_size / 2; dy <= win_size / 2; dy++) {
-                    for (int dx = -win_size / 2; dx <= win_size / 2; dx++) {
-
-                        // Compute the pixel coordinates in the two images for the current window position and disparity
-                        int x1 = x + dx, y1 = y + dy;
-                        int x2 = x - disp + dx, y2 = y + dy;
-
-                        // Compute the pixel intensities in the two windows
-                        unsigned char p1 = left_img[y1 * width + x1];
-                        unsigned char p2 = right_img[y2 * width + x2];
-
-                        // Compute the sums for mean and correlation calculations
-                        sum1 += p1;
-                        sum2 += p2;
-                        sum12 += p1 * p2;
-                    }
-                }
-
-                // Compute the means of the pixel intensities in the two windows
-                double mean1 = sum1 / (win_size * win_size);
-                double mean2 = sum2 / (win_size * win_size);
-
-                // Compute the standard deviations of the pixel intensities in the two windows
-                double std1 = 0.0, std2 = 0.0, cov = 0.0;
-                for (int dy = -win_size / 2; dy <= win_size / 2; dy++) {
-                    for (int dx = -win_size / 2; dx <= win_size / 2; dx++) {
-
-                        // Compute the pixel coordinates in the two images for the current window position and disparity
-                        int x1 = x + dx, y1 = y + dy;
-                        int x2 = x - disp + dx, y2 = y + dy;
-
-                        // Compute the pixel intensities in the two windows
-                        unsigned char p1 = left_img[y1 * width + x1];
-                        unsigned char p2 = right_img[y2 * width + x2];
-
-                        // Compute the sums for standard deviation and correlation calculations
-                        std1 += (p1 - mean1) * (p1 - mean1);
-                        std2 += (p2 - mean2) * (p2 - mean2);
-                        cov += (p1 - mean1) * (p2 - mean2);
-                    }
-                }
-
-                std1 = sqrt(std1 / (win_size * win_size));
-                std2 = sqrt(std2 / (win_size * win_size));
-                cov = cov / (win_size * win_size);
-
-                // Compute the correlation between the two windows using the ZNCC formula
-                double correlation = (cov - mean1 * mean2) / (std1 * std2);
-
-                // If the correlation is higher than the current maximum, update the maximum and the corresponding disparity
-                if (correlation > max_corr) {
-                    max_corr = correlation;
-                    best_disp = disp;
+    for (int i = 0; i < newHeight; ++i)
+    {
+        for (int j = 0; j < newWidth; ++j)
+        {
+            int sum = 0;
+            for (int k = i * resizeFactor; k < (i + 1) * resizeFactor; k++) {
+                for (int l = j * resizeFactor; l < (j + 1) * resizeFactor; l++) {
+                    sum += image[k * width + l];
                 }
             }
-
-            disp_map[y * width + x] = best_disp;
+            imageResized[i * (newWidth) + j] = sum / (resizeFactor * resizeFactor);
         }
     }
 }
 
-void cross_check(const std::vector<unsigned char> left_img, const std::vector<unsigned char> right_img, const int& width, const int& height, const int& win_size, const int& max_disp, std::vector<double>& cross_disp_map)
+
+// Apply ZNCC algorithm for a given window size and max disparity
+void CalcZNCC(const std::vector<unsigned char>& leftImage,
+    const std::vector<unsigned char>& rightImage,
+    int width, int height,
+    int windowSize, int maxDisparity,
+    std::vector<int>& disparityMap,
+    char isLeftImage = 1
+    ) 
 {
-    // Allocate memory for the disparity maps for both directions
-    std::vector<double> disp_map_left(width * height, 0.0);
-    std::vector<double> disp_map_right(width * height, 0.0);
+    int imgSize = width * height;
 
-    // Compute the disparity map for the left image
-    zncc_disparity(left_img, right_img, width, height, win_size, max_disp, disp_map_left);
+    int halfWindowSize = (windowSize - 1) / 2;
 
-    // Compute the disparity map for the right image
-    zncc_disparity(right_img, left_img, width, height, win_size, max_disp, disp_map_right);
+    for (int y = 0; y < height; y++)
+    {
+        for (int x = 0; x < width; x++)
+        {
+            int bestDisp = 0;
+            float bestZNCC = -100.0;
+            bool isBorderPixel = false;
 
+            // handle borders | keep bestDisp at 0, so borders will be black
+            if (y >= height - halfWindowSize || x >= width - halfWindowSize ||
+                y <= halfWindowSize || x <= halfWindowSize)
+            {
+                isBorderPixel = true;
+            }
+
+            if (!isBorderPixel)
+            {
+                for (int d = 0; d < maxDisparity; d++)
+                {
+                    float zncc = 0.0;
+                    float numerator = 0.0, denominator1 = 0.0, denominator2 = 0.0;
+                    float leftMean = 0.0, rightMean = 0.0;
+
+                    // calculate mean for each window - future kernel - changes for different disparities, as the rightmean is calculated based on the disparity
+                    int avgCount = 0;
+                    for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)
+                    {
+                        for (int winX = -halfWindowSize; winX < halfWindowSize; winX++)
+                        {
+                            // don't allow pixel to go to previous row
+                            if (d > x + winX)
+                            {
+                                break;
+                            }
+
+                            int leftPixelIndex = (y + winY) * width + (x + winX);
+                            int rightPixelIndex = (y + winY) * width + (x + winX - isLeftImage * d);
+                            if (rightPixelIndex >= imgSize ||
+                                rightPixelIndex <= 0)
+                            {
+                                break;
+                            }
+
+                            leftMean += leftImage[leftPixelIndex];
+                            rightMean += rightImage[rightPixelIndex];
+                            avgCount++;
+                        }
+
+                    }
+                    leftMean = leftMean / avgCount;
+                    rightMean = rightMean / avgCount;
+
+                    for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)
+                    {
+                        for (int winX = -halfWindowSize; winX < halfWindowSize; winX++)
+                        {
+                            // don't allow pixel to go to previous row
+                            if (d > x + winX)
+                            {
+                                break;
+                            }
+
+                            int leftPixelIndex = (y + winY) * width + (x + winX);
+                            int rightPixelIndex = (y + winY) * width + (x + winX - isLeftImage * d);
+                            if (rightPixelIndex >= imgSize ||
+                                rightPixelIndex <= 0)
+                            {
+                                break;
+                            }
+
+                            // calculate zncc value for each window
+                            numerator += (leftImage[leftPixelIndex] - leftMean) * (rightImage[rightPixelIndex] - rightMean);
+                            denominator1 += pow(leftImage[leftPixelIndex] - leftMean, 2);
+                            denominator2 += pow(rightImage[rightPixelIndex] - rightMean, 2);
+
+                        }
+
+                    }
+
+                    float denominator = sqrt(denominator1) * sqrt(denominator2);
+                    if (denominator == 0) {
+                        break;
+                    }
+
+                    zncc = numerator / denominator;
+                    if (zncc > bestZNCC)
+                    {
+                        bestZNCC = zncc;
+                        bestDisp = d;
+                    }
+                }
+            }
+
+            disparityMap[y * width + x] = bestDisp;
+        }
+    }
+}
+
+void CrossCheck(const std::vector<int>& dispMapLeft, const std::vector<int>& dispMapRight, const int& width, const int& height, std::vector<int>& crossDispMap)
+{
     // Loop over all pixels inside the image boundary
-    for (int y = win_size / 2; y < height - win_size / 2; y++) {
-        for (int x = win_size / 2; x < width - win_size / 2; x++) {
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width ; x++) {
 
             // Get the disparity values for the current pixel in both directions
-            double disp_left = disp_map_left[y * width + x];
-            double disp_right = disp_map_right[y * width + x - disp_left];
+            int dispLeft = dispMapLeft[y * width + x];
+            int dispRight = dispMapRight[y * width + x];
 
             // Check if the disparity values agree | abs used to account for rounding errors
-            if (disp_right >= 0 && std::abs(disp_left - (-disp_right)) <= 8.0) {
+            if (std::abs(dispLeft - dispRight) <= 8.0) {
                 // If the disparities agree, use the left disparity value as the final disparity for the pixel
-                cross_disp_map[y * width + x] = disp_left;
+                crossDispMap[y * width + x] = dispLeft;
             }
             else {
                 // Otherwise, mark the pixel as invalid
-                cross_disp_map[y * width + x] = 0;
+                crossDispMap[y * width + x] = 0;
             }
         }
     }
 }
 
-void occlusion_filling(const std::vector<double>& disp_map, const int& width, const int& height, std::vector<double>& disp_map_filled)
+void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const int& height, const int& nCount, std::vector<int>& dispMapFilled)
 {
-    // Allocate memory for the filled disparity map
-    disp_map_filled.resize(width * height);
-
     // Copy the input disparity map to the output disparity map
-    std::copy(disp_map.begin(), disp_map.end(), disp_map_filled.begin());
+    std::copy(dispMap.begin(), dispMap.end(), dispMapFilled.begin());
 
     // Loop over all pixels inside the image boundary
-    for (int y = 1; y < height - 1; y++) {
-        for (int x = 1; x < width - 1; x++) {
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+
+            // handle borders | keep bestDisp at 0, so borders will stay black
+            if (y >= height - (nCount / 2) || x >= width - (nCount / 2)  ||
+                y <= nCount / 2 || x <= nCount / 2)
+            {
+                break;
+            }
 
             // Check if the current pixel is marked as invalid
-            if (disp_map[y * width + x] < 0) {
+            if (dispMap[y * width + x] == 0) {
 
-                // Initialize the list of valid disparity values in the 8-neighborhood of the current pixel
-                std::vector<double> neighbors;
+                // Initialize the list of valid disparity values in the n-neighborhood of the current pixel
+                std::vector<int> neighbors;
 
-                // Loop over the 8-neighbors of the current pixel
-                for (int dy = -1; dy <= 1; dy++) {
-                    for (int dx = -1; dx <= 1; dx++) {
+                // Loop over the n-neighbors of the current pixel
+                for (int dy = -nCount / 2; dy <= nCount / 2; dy++) {
+                    for (int dx = -nCount / 2; dx <= nCount/ 2; dx++) {
                         // Skip the center pixel
                         if (dx == 0 && dy == 0) continue;
 
                         // Get the disparity value for the current neighbor
-                        double neighbor_disp = disp_map[(y + dy) * width + x + dx];
+                        int neighbor_disp = dispMap[(y + dy) * width + (x + dx)];
 
                         // If the neighbor is valid, add its disparity value to the list
                         if (neighbor_disp >= 0) {
@@ -161,44 +215,43 @@ void occlusion_filling(const std::vector<double>& disp_map, const int& width, co
                     }
                 }
 
-                // If at least one valid disparity value was found in the 8-neighborhood,
+                // If at least one valid disparity value was found in the n-neighborhood,
                 // set the current pixel's disparity value to the median of the valid values
                 if (!neighbors.empty()) {
-                    double median_disp = neighbors[neighbors.size() / 2];
-                    disp_map_filled[y * width + x] = median_disp;
+                    dispMapFilled[y * width + x] = neighbors[neighbors.size() / 2];
                 }
             }
         }
     }
 }
 
-void normalize_to_char(const std::vector<double>& disp_map, const int& width, const int& height, const int& ndisp, std::vector<unsigned char>& norm_vec)
+void NormalizeToChar(const std::vector<int>& dispMap, const int& width, const int& height, const int& ndisp, std::vector<unsigned char>& normVec)
 {
-    // Allocate memory for the normalized disparity map
-    norm_vec.resize(width * height);
-
     // Loop over all pixels and normalize the disparity values
     for (int i = 0; i < width * height; i++) {
-        norm_vec[i] = static_cast<unsigned char>(disp_map[i] / ndisp * 255);
+        normVec[i] = static_cast<unsigned char>(static_cast<float>(dispMap[i]) / ndisp * 255);
     }
 }
 
 int main()
-{   // from calib.txt - downsized
+{   
+    // from calib.txt - downsized
     // each pixel in the downsampled image corresponds to a larger area in the original image
     // reducing the resolution of the images reduces the maximum disparity that can be reliably estimated
     // Disparity value represents the number of pixels that one image point is shifted relative to the other image point,
     // so the maximum disparity value is directly related to the image resolution.
     // To account for this reduction in resolution, we need to adjust the maximum disparity value by the same factor that we used to downsample the image
-    int ndisp = 260 * 16; 
+
+    int ndisp = 260;
+    unsigned int resize_factor = 4;
     int win_size = 11;
+    int neighbours = 16;
 
     // setup inputs and outputs
-    const char* leftImgName = "../img/im0_out.png";
-    const char* rightImgName = "../img/im1_out.png";
+    const char* leftImgName = "../img/im0.png";
+    const char* rightImgName = "../img/im1.png";
 
-    const char* leftImgNameOut = "../img/im0_disparity.png";
-    const char* rightImgNameOut = "../img/im1_disparity.png";
+    const char* depthmapOut = "../img/depthmap.png";
 
     // create containers for raw images
     std::vector<unsigned char> leftImage;
@@ -206,27 +259,65 @@ int main()
     unsigned int width, height;
 
     // decode images
-    unsigned int error = lodepng::decode(leftImage, width, height, leftImgName, LCT_GREY, 8);
+    unsigned int error = lodepng::decode(leftImage, width, height, leftImgName, LCT_RGBA, 8);
     if (error) std::cout << "decoder error first image: " << error << ": " << lodepng_error_text(error) << std::endl;
 
-    error = lodepng::decode(rightImage, width, height, rightImgName, LCT_GREY, 8);
+    error = lodepng::decode(rightImage, width, height, rightImgName, LCT_RGBA, 8);
     if (error) std::cout << "decoder error second image: " << error << ": " << lodepng_error_text(error) << std::endl;
 
-    // apply zncc
-    std::vector<double> leftImageDisparity(width * height);
-    //std::vector<double> rightImageDisparity(width * height);
-    zncc_disparity(leftImage, rightImage, width, height, win_size, ndisp, leftImageDisparity);
-    //zncc_disparity(rightImage, leftImage, width, height, win_size, ndisp, leftImageDisparity);
+    // start timing execution time
+    LARGE_INTEGER start, end, frequency;
+    double elapsed_time;
 
-    std::vector<unsigned char> leftImageDisparityNormalized(width * height);
-    //std::vector<unsigned char> rightImageDisparityNormalized(width * height);
-    normalize_to_char(leftImageDisparity, width, height, ndisp, leftImageDisparityNormalized);
-    //normalize_to_char(rightImageDisparity, width, height, ndisp, rightImageDisparityNormalized);
+    QueryPerformanceFrequency(&frequency);
+
+    QueryPerformanceCounter(&start);
+
+    // convert image to grayscale, ignoring the alpha channel
+    std::vector<unsigned char> leftImageGray(width * height);
+    std::vector<unsigned char> rightImageGray(width * height);
+    GrayScaleImageConversion(leftImage, width, height, leftImageGray);
+    GrayScaleImageConversion(rightImage, width, height, rightImageGray);
+
+    // resize image
+    std::vector<unsigned char> leftImageResized(width * height);
+    std::vector<unsigned char> rightImageResized(width * height);
+    ResizeImage(leftImageGray, width, height, resize_factor, leftImageResized);
+    ResizeImage(rightImageGray, width, height, resize_factor, rightImageResized);
+
+    // update values depending on resolution
+    int oldWidth = width;
+    width = width / resize_factor;
+    height = height / resize_factor;
+    ndisp = ndisp * (static_cast<float>(width) / oldWidth);
+
+    // apply zncc
+    std::vector<int> leftImageDisparity(width * height);
+    std::vector<int> rightImageDisparity(width * height);
+    CalcZNCC(leftImageResized, rightImageResized, width, height, win_size, ndisp, leftImageDisparity);
+    CalcZNCC(rightImageResized, leftImageResized, width, height, win_size, ndisp, rightImageDisparity, -1);
+
+    // CrossChecking
+    std::vector<int> crossCheckedMap(width * height);
+    CrossCheck(leftImageDisparity, rightImageDisparity, width, height, crossCheckedMap);
+
+    // occlusion filling
+    std::vector<int> oclussionFilledMap(width * height);
+    OcclusionFilling(crossCheckedMap, width, height, neighbours, oclussionFilledMap);
+
+    // normalization to 8 bit
+    std::vector<unsigned char> depthmapNormalized(width * height);
+    NormalizeToChar(oclussionFilledMap, width, height, ndisp, depthmapNormalized);
+
+    // end execution timing and print
+    QueryPerformanceCounter(&end);
+
+    elapsed_time = static_cast<double>(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+    std::cout << "Elapsed time: " << elapsed_time << " seconds\n";
+
+    std::cout << "Elapsed time: " << elapsed_time / 60 << " minutes\n";
 
     // encode resized and grayscaled images (im*_out)
-    error = lodepng::encode(leftImgNameOut, leftImageDisparityNormalized, width, height, LCT_GREY, 8);
+    error = lodepng::encode(depthmapOut, depthmapNormalized, width, height, LCT_GREY, 8);
     if (error) std::cout << "encoder error first image: " << error << ": " << lodepng_error_text(error) << std::endl;
-
-    //error = lodepng::encode(rightImgNameOut, rightImageDisparityNormalized, width, height, LCT_GREY, 8);
-    //if (error) std::cout << "encoder error second image: " << error << ": " << lodepng_error_text(error) << std::endl;
 }
