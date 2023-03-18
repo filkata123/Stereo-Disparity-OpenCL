@@ -88,7 +88,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
                             // don't allow pixel to go to previous row
                             if (d > x + winX)
                             {
-                                break;
+                                continue;
                             }
 
                             int leftPixelIndex = (y + winY) * width + (x + winX);
@@ -96,7 +96,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
                             if (rightPixelIndex >= imgSize ||
                                 rightPixelIndex <= 0)
                             {
-                                break;
+                                continue;
                             }
 
                             leftMean += leftImage[leftPixelIndex];
@@ -115,7 +115,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
                             // don't allow pixel to go to previous row
                             if (d > x + winX)
                             {
-                                break;
+                                continue;
                             }
 
                             int leftPixelIndex = (y + winY) * width + (x + winX);
@@ -123,7 +123,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
                             if (rightPixelIndex >= imgSize ||
                                 rightPixelIndex <= 0)
                             {
-                                break;
+                                continue;
                             }
 
                             // calculate zncc value for each window
@@ -154,7 +154,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
     }
 }
 
-void CrossCheck(const std::vector<int>& dispMapLeft, const std::vector<int>& dispMapRight, const int& width, const int& height, std::vector<int>& crossDispMap)
+void CrossCheck(const std::vector<int>& dispMapLeft, const std::vector<int>& dispMapRight, const int& width, const int& height, const int& crossDiff, std::vector<int>& crossDispMap)
 {
     // Loop over all pixels inside the image boundary
     for (int y = 0; y < height; y++) {
@@ -165,7 +165,7 @@ void CrossCheck(const std::vector<int>& dispMapLeft, const std::vector<int>& dis
             int dispRight = dispMapRight[y * width + x];
 
             // Check if the disparity values agree | abs used to account for rounding errors
-            if (std::abs(dispLeft - dispRight) <= 8.0) {
+            if (std::abs(dispLeft - dispRight) <= crossDiff) {
                 // If the disparities agree, use the left disparity value as the final disparity for the pixel
                 crossDispMap[y * width + x] = dispLeft;
             }
@@ -190,7 +190,7 @@ void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const i
             if (y >= height - (nCount / 2) || x >= width - (nCount / 2)  ||
                 y <= nCount / 2 || x <= nCount / 2)
             {
-                break;
+                continue;
             }
 
             // Check if the current pixel is marked as invalid
@@ -209,7 +209,7 @@ void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const i
                         int neighbor_disp = dispMap[(y + dy) * width + (x + dx)];
 
                         // If the neighbor is valid, add its disparity value to the list
-                        if (neighbor_disp >= 0) {
+                        if (neighbor_disp > 0) {
                             neighbors.push_back(neighbor_disp);
                         }
                     }
@@ -245,7 +245,8 @@ int main()
     int ndisp = 260;
     unsigned int resize_factor = 4;
     int win_size = 11;
-    int neighbours = 16;
+    int neighbours = 32;
+    int crossDiff = 32;
 
     // setup inputs and outputs
     const char* leftImgName = "../img/im0.png";
@@ -299,7 +300,7 @@ int main()
 
     // CrossChecking
     std::vector<int> crossCheckedMap(width * height);
-    CrossCheck(leftImageDisparity, rightImageDisparity, width, height, crossCheckedMap);
+    CrossCheck(leftImageDisparity, rightImageDisparity, width, height, crossDiff, crossCheckedMap);
 
     // occlusion filling
     std::vector<int> oclussionFilledMap(width * height);
