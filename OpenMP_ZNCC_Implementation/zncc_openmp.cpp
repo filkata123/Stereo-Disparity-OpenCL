@@ -1,5 +1,6 @@
 #include <lodepng.h>
 
+#include <omp.h>
 #include <iostream>
 #include <math.h> 
 #include <vector>
@@ -10,7 +11,8 @@ void GrayScaleImageConversion(const std::vector<unsigned char>& image, unsigned 
 {
     // iterate over every four values, as input is 4 channeled RGBA
     char channel = 4;
-    for (size_t i = 0; i < image.size(); i += channel)
+#pragma omp parallel for
+    for (int i = 0; i < image.size(); i += channel)
     {
         // Add up R, G and B values and divide to get grayscale value.
         // We don't care about the A value, so it is not used.
@@ -26,17 +28,19 @@ void ResizeImage(std::vector<unsigned char> image, unsigned int width, unsigned 
     int newWidth = width / resizeFactor;
     int newHeight = height / resizeFactor;
 
+#pragma omp parallel for collapse(2)
     for (int i = 0; i < newHeight; ++i)
     {
         for (int j = 0; j < newWidth; ++j)
         {
             int sum = 0;
+#pragma omp parallel for collapse(2)
             for (int k = i * resizeFactor; k < (i + 1) * resizeFactor; k++) {
                 for (int l = j * resizeFactor; l < (j + 1) * resizeFactor; l++) {
                     sum += image[k * width + l];
                 }
             }
-            imageResized[i * (newWidth) + j] = sum / (resizeFactor * resizeFactor);
+            imageResized[i * (newWidth)+j] = sum / (resizeFactor * resizeFactor);
         }
     }
 }
@@ -49,12 +53,13 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
     int windowSize, int maxDisparity,
     std::vector<int>& disparityMap,
     char isLeftImage = 1
-    ) 
+)
 {
     int imgSize = width * height;
 
     int halfWindowSize = (windowSize - 1) / 2;
 
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < height; y++)
     {
         for (int x = 0; x < width; x++)
@@ -72,6 +77,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
 
             if (!isBorderPixel)
             {
+#pragma omp parallel for
                 for (int d = 0; d < maxDisparity; d++)
                 {
                     float zncc = 0.0;
@@ -80,6 +86,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
 
                     // calculate mean for each window - future kernel - changes for different disparities, as the rightmean is calculated based on the disparity
                     int avgCount = 0;
+#pragma omp parallel for collapse(2)
                     for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)
                     {
                         for (int winX = -halfWindowSize; winX < halfWindowSize; winX++)
@@ -106,7 +113,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
                     }
                     leftMean = leftMean / avgCount;
                     rightMean = rightMean / avgCount;
-
+#pragma omp parallel for collapse(2)
                     for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)
                     {
                         for (int winX = -halfWindowSize; winX < halfWindowSize; winX++)
@@ -156,8 +163,9 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
 void CrossCheck(const std::vector<int>& dispMapLeft, const std::vector<int>& dispMapRight, const int& width, const int& height, const int& crossDiff, std::vector<int>& crossDispMap)
 {
     // Loop over all pixels inside the image boundary
+#pragma omp parallel for collapse(2)
     for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width ; x++) {
+        for (int x = 0; x < width; x++) {
 
             // Get the disparity values for the current pixel in both directions
             int dispLeft = dispMapLeft[y * width + x];
@@ -180,13 +188,13 @@ void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const i
 {
     // Copy the input disparity map to the output disparity map
     std::copy(dispMap.begin(), dispMap.end(), dispMapFilled.begin());
-
+#pragma omp parallel for collapse(2)
     // Loop over all pixels inside the image boundary
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
 
             // handle borders | keep bestDisp at 0, so borders will stay black
-            if (y >= height - (nCount / 2) || x >= width - (nCount / 2)  ||
+            if (y >= height - (nCount / 2) || x >= width - (nCount / 2) ||
                 y <= nCount / 2 || x <= nCount / 2)
             {
                 continue;
@@ -199,8 +207,9 @@ void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const i
                 std::vector<int> neighbors;
 
                 // Loop over the n-neighbors of the current pixel
+#pragma omp parallel for collapse(2)
                 for (int dy = -nCount / 2; dy <= nCount / 2; dy++) {
-                    for (int dx = -nCount / 2; dx <= nCount/ 2; dx++) {
+                    for (int dx = -nCount / 2; dx <= nCount / 2; dx++) {
                         // Skip the center pixel
                         if (dx == 0 && dy == 0) continue;
 
@@ -227,13 +236,14 @@ void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const i
 void NormalizeToChar(const std::vector<int>& dispMap, const int& width, const int& height, const int& ndisp, std::vector<unsigned char>& normVec)
 {
     // Loop over all pixels and normalize the disparity values
+#pragma omp parallel for
     for (int i = 0; i < width * height; i++) {
         normVec[i] = static_cast<unsigned char>(static_cast<float>(dispMap[i]) / ndisp * 255);
     }
 }
 
 int main()
-{   
+{
     // from calib.txt - downsized
     // each pixel in the downsampled image corresponds to a larger area in the original image
     // reducing the resolution of the images reduces the maximum disparity that can be reliably estimated

@@ -158,3 +158,47 @@ The CPU usage graph produced by Visual Studio can be seen below.
 The code can be investigated in [CPU_ZNCC_Implementation/zncc.cpp](CPU_ZNCC_Implementation/zncc.cpp).
 
 The whole phase took 19 hours.
+
+## Phase 3 (3:00 hours)
+CPU parallelization of the ZNCC pipeline implemented earlier was done in Phase 3. 
+The improved implementation (which is very slightly different than the original) can be found in the **OpenMP_ZNCC_Implementation** project
+
+Parallelization was done through OpenMP. 
+The /openmp command-line argument was first added in the Visual Studio property sheet of the project, so as to allow the usage of OpenMP.
+Then, this [tutorial](https://bisqwit.iki.fi/story/howto/openmp/) was used to understand OpenMP better.
+
+The main way threading was introduced to the implementation was by decorating the code with either ```#pragma omp parallel for``` in independent for-loops, or ```#pragma omp parallel for collapse(2)``` in places where 2x nested loops were used.
+This command would tell OpenMP to create a thread for each nested iteration.
+
+Adding ```reduction(+:<variable>)``` was also investigated for the ```ResizeImage``` function and the mean calculation of the ZNCC algorithm as they use variables that can benefit from parallel recurrence calculations, but that did not add any time improvements, so the reductions were removed.
+
+Overall, using OpenMP added a significant improvement in speed.
+As can be seen by the image below, the implementation which previously took 8 minutes is now completed in around 1 minute - an 8x improvement.
+
+![](diary_img/OpenMp_time.png "Estimated time to run whole pipeline with OpenMP")
+
+The creation of threads by OpenMP leads to more CPU usage as expected.
+In comparison to the previous phase, this time around between 85 and 90% of the CPU is utilized.
+The image below shows this and the speed of the implementation.
+It was interesting to note that profiling affects the speed.
+
+![](diary_img/openMp_profiled.png "CPU usage with OpenMP")
+
+The "hole" in CPU utilization in the middle is interesting to note.
+The usage there is around 30% and as far as the profiler can show, it is caused by the parallelization of the for loop, which iterates over the disparity values.
+One idea why this is happening is that there are only 260 disparity values, so the loop can be parallelized only so much.
+In all other cases, parallelization is done on pixel iteration, so the max value of the parallelized for loops is much higher as it equals the ```width * height``` of the image.
+This means that many more threads can be created in the latter case than in the former case.
+
+Implementing this took around 2 hours.
+
+Offloading some of the work to the GPU with OpenMP was also investigated.
+Based on the tutorial mentioned earlier, this could be done as easy as just declaring the GPU as a target for OpenMP and then running a target specific command ```#pragma omp target teams distribute parallel for``` or the *collapse* version for nested loops.
+In this scenario the copying the data to and from the target must also be taken care of, similarly to how it is done in OpenCL.
+Sadly, the MSVC version of OpenMP [does not have support](https://devblogs.microsoft.com/cppblog/improved-openmp-support-for-cpp-in-visual-studio/) for GPU offloading yet, so it was not possible to test how offloading would affect the algorithm run time.
+
+An additional one hour was spent on the GPU offloading investigation.
+
+The code can be investigated in [OpenMP_ZNCC_Implementation/zncc_openmp.cpp](OpenMP_ZNCC_Implementation/zncc_openmp.cpp).
+
+Overall, this phase took around 3 hours.
