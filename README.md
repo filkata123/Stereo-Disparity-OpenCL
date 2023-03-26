@@ -202,3 +202,30 @@ An additional one hour was spent on the GPU offloading investigation.
 The code can be investigated in [OpenMP_ZNCC_Implementation/zncc_openmp.cpp](OpenMP_ZNCC_Implementation/zncc_openmp.cpp).
 
 Overall, this phase took around 3 hours.
+
+## Phase 4 (7)
+In phase 4, the ZNCC pipeline's speed was optimized with OpenCL.
+This implementation can be seen in the **OpenCL_ZNCC_Implementation** project.
+
+First, two kernels were created to process the read image, convert it to grayscale and resize it to 1/16 of its original size.
+Instead of using normal buffer objects to pass the images to the device, OpenCL's ```Image2D``` objects were used.
+This made converting to grayscale easier, as image objects in OpenCL can take into account that a single pixel can have multiple channels for its color values.
+By creating an ```ImageFormat``` object, the bit depth and data type of the channel can be given to the Image2D object.
+Then, similarly to the usage of buffers, the image object can be passed to the device through the kernel's arguments.
+The reason, why this method makes conversion to grayscale easier (or more precisely - cleaner) is because, instead of manually adding up the R, G and B values of the raw image and skipping every four bytes like we did [previously](kernels/image_manipulator_kernels.cl), we can simply access the x, y and z values of a special 4-byte unsigned int struct the Image2D object uses for encoding.
+By using the special OpenCL functions ```read_imageui()``` and ```write_imageui()``` these pixels can be decoded and encoded back to an output image respectively.
+How this is done can be seen in the [convert_grayscale](kernels/zncc_kernels.cl) kernel.
+
+After this, the same output image is directly passed to a kernel, which resizes the image, without reading the output on the host device.
+This is done to avoid unnecessary data transfers.
+The [resize_image](kernels/zncc_kernels.cl) kernel works similarly to the grayscale one, as it also takes Image2D as an input an output.
+As the [original CPU resizing function](moving_filter.cpp) was applied to a raw 1D vector, some minor changes had to be applied to the kernel implementation.
+A considerable time was spent investigating how to have differently-sized input and output objects for the kernel.
+At first, the author was unsure whether enqueuing the kernel was supposed to be done with the size of the input or output object.
+After figuring out through ChatGPT that the latter was the case, the [code](OpenCl_ZNCC_Implementation/zncc_opencl.cpp) was changed to reflect that.
+The time spent so far was around 7 hours.
+
+#TODO: Make the above into a function and apply to second image
+#TODO: Kernel for ZNCC (maybe split into sub-kernels if possible?)
+#TODO: Kernel for CrossCheck
+#TODO: Kernel for OcclusionFilling
