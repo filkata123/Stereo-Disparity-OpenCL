@@ -14,44 +14,67 @@
 #include <vector>
 #include <Windows.h>
 
-void GrayScaleImageConversion(const std::vector<unsigned char>& image, unsigned int width, unsigned int height, std::vector<unsigned char>& imageGray)
+cl::Image2D EnqueueGrayScaleConversion(cl::Context& context, cl::Program program, cl::Device device, std::vector<unsigned char>& image, unsigned int width, unsigned int height)
 {
-    // iterate over every four values, as input is 4 channeled RGBA
-    char channel = 4;
-    for (size_t i = 0; i < image.size(); i += channel)
-    {
-        // Add up R, G and B values and divide to get grayscale value.
-        // We don't care about the A value, so it is not used.
-        imageGray[i / channel] = (image[i + 0] + image[i + 1] + image[i + 2]) / 3;
-    }
+    cl::ImageFormat rgbaFormat{ CL_RGBA, CL_UNSIGNED_INT8 };
+    cl::ImageFormat grayscaleFormat{ CL_DEPTH, CL_UNSIGNED_INT8 };
+    // create input image object, which is read_only and has a format of RGBA + 8 bit depth
+    cl::Image2D inputImage(context, CL_MEM_READ_ONLY | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, rgbaFormat, width, height, 0, image.data()); // TODO: To be improved with CL_MEM_USE_HOST_PTR ?
+    // create output image object, which is read and write so that it can be reused by next kernel; use format of grayscale + 8 bit depth
+    cl::Image2D outputImageGray(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, grayscaleFormat, width, height);
+    cl::Kernel kernelGrayscale(program, "convert_grayscale");
+
+    // set arguments
+    kernelGrayscale.setArg(0, inputImage);
+    kernelGrayscale.setArg(1, outputImageGray);
+
+    // create command queue with profiling enabled
+    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    cl::CommandQueue queue(context, device, properties);
+    cl::Event profEvent;
+
+    // queue the kernel
+    queue.enqueueNDRangeKernel(kernelGrayscale, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
+    profEvent.wait();
+
+    // print profiling
+    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    std::cout << "Grayscale conversion execution time in microseconds " << runTime / (float)10e3 << std::endl;
+
+    return outputImageGray;
 }
 
-void ResizeImage(std::vector<unsigned char> image, unsigned int width, unsigned int height, unsigned int resizeFactor, std::vector<unsigned char>& imageResized)
+cl::Buffer EnqueueResizeImage(cl::Context& context, cl::Program program, cl::Device device, cl::Image2D image, unsigned int width, unsigned int height, unsigned int resizeFactor, cl::CommandQueue& queue)
 {
-    // Divide image into resizeFactor x resizeFactor blocks and then use the average value of said blocks as the value of the new pixel
-    imageResized.resize((width * height) / (resizeFactor * resizeFactor));
+    // create output buffer object for image so that it can be accessed easier in the next part of the pipeline
+    // read_write access given, so that buffer can be reused as input
+    cl::Buffer outputImageBuffResized(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned char) * (width * height));
+    cl::Kernel kernelResize(program, "resize_image");
 
-    int newWidth = width / resizeFactor;
-    int newHeight = height / resizeFactor;
+    // set arguments
+    kernelResize.setArg(0, resizeFactor);
+    kernelResize.setArg(1, image);
+    kernelResize.setArg(2, outputImageBuffResized);
 
-    for (int i = 0; i < newHeight; ++i)
-    {
-        for (int j = 0; j < newWidth; ++j)
-        {
-            int sum = 0;
-            for (int k = i * resizeFactor; k < (i + 1) * resizeFactor; k++) {
-                for (int l = j * resizeFactor; l < (j + 1) * resizeFactor; l++) {
-                    sum += image[k * width + l];
-                }
-            }
-            imageResized[i * (newWidth)+j] = sum / (resizeFactor * resizeFactor);
-        }
-    }
+    // create command queue with profiling enabled
+    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    cl::CommandQueue queueResize(context, device, properties);
+    cl::Event profEvent;
+
+    // queue the resizing kernel
+    queueResize.enqueueNDRangeKernel(kernelResize, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
+    profEvent.wait();
+
+    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    std::cout << "Resize execution time in microseconds " << runTime / (float)10e3 << std::endl;
+
+    queue = queueResize;
+    return outputImageBuffResized;
 }
 
 
 // Apply ZNCC algorithm for a given window size and max disparity
-void CalcZNCC(const std::vector<unsigned char>& leftImage,
+void EnqueuZNCC(const std::vector<unsigned char>& leftImage,
     const std::vector<unsigned char>& rightImage,
     int width, int height,
     int windowSize, int maxDisparity,
@@ -259,7 +282,8 @@ int main()
     const char* leftImgName = "../img/im0.png";
     const char* rightImgName = "../img/im1.png";
 
-    const char* depthmapOut = "../img/cl_depthmap.png";
+    const char* depthmapOut = "../img/cl_depthmap_left.png";
+    const char* depthmapOutRight = "../img/cl_depthmap_right.png";
 
     // create containers for raw images
     std::vector<unsigned char> leftImage;
@@ -341,73 +365,47 @@ int main()
 
         // Kernel logic
         //// Grayscale conversion
-
-        cl::ImageFormat rgbaFormat { CL_RGBA, CL_UNSIGNED_INT8 };
-        cl::ImageFormat grayscaleFormat { CL_DEPTH, CL_UNSIGNED_INT8 };
-        // create input image object, which is read_only and has a format of RGBA + 8 bit depth
-        cl::Image2D inputImage(context, CL_MEM_READ_ONLY | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, rgbaFormat, width, height, 0, leftImage.data()); // TODO: To be improved with CL_MEM_USE_HOST_PTR ?
-        // create output image object, which is read and write so that it can be reused by next kernel; use format of grayscale + 8 bit depth
-        cl::Image2D outputImageGray(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, grayscaleFormat, width, height);
-        cl::Kernel kernelGrayscale(program, "convert_grayscale");
-
-        // set arguments
-        kernelGrayscale.setArg(0, inputImage);
-        kernelGrayscale.setArg(1, outputImageGray);
-
-        // create command queue with profiling enabled
-        cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-        cl::CommandQueue queue(context, device, properties);
-        cl::Event profEvent;
-
-        // queue the kernel
-        queue.enqueueNDRangeKernel(kernelGrayscale, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-        profEvent.wait();
-
-        // print profiling
-        double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
-        std::cout << "Grayscale conversion execution time in microseconds " << runTime / (float)10e3 << std::endl;
+        std::cout << "Converting left image to grayscale..." << std::endl;
+        auto outputImageGrayLeft = EnqueueGrayScaleConversion(context, program, device, leftImage, width, height);
+        std::cout << "Converting right image to grayscale..." << std::endl;
+        auto outputImageGrayRight = EnqueueGrayScaleConversion(context, program, device, rightImage, width, height);
 
         //// Rescaling
+        // update values depending on resolution
+        int oldWidth = width;
         width = width / resizeFactor;
         height = height / resizeFactor;
-        // create output image object, which is write_only and has a format of grayscale + 8 bit depth
-        cl::Image2D outputImageResized(context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, grayscaleFormat, width, height);
-        cl::Kernel kernelResize(program, "resize_image");
+        ndisp = ndisp * (static_cast<float>(width) / oldWidth);
 
-        // set arguments
-        kernelResize.setArg(0, resizeFactor);
-        kernelResize.setArg(1, outputImageGray);
-        kernelResize.setArg(2, outputImageResized);
-
-        // create command queue with profiling enabled
-        cl::CommandQueue queueResize(context, device, properties);
-
-        // queue the kernel
-        queueResize.enqueueNDRangeKernel(kernelResize, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-        profEvent.wait();
+        // enqueue resizing
+        cl::CommandQueue queueResizeLeft, queueResizeRight;
+        std::cout << "Resizing left image to 1/16 size..." << std::endl;
+        auto outputImageResizedLeft = EnqueueResizeImage(context, program, device, outputImageGrayLeft, width, height, resizeFactor, queueResizeLeft);
+        std::cout << "Resizing right image to 1/16 size..." << std::endl;
+        auto outputImageResizedRight = EnqueueResizeImage(context, program, device, outputImageGrayRight, width, height, resizeFactor, queueResizeRight);
 
         // read the rescaled image output and put it into a vector
         cl::Event readEvent;
-        cl::size_t<3> origin;
-        origin[0] = 0;
-        origin[1] = 0;
-        origin[2] = 0;
-        cl::size_t<3> region;
-        region[0] = width;
-        region[1] = height;
-        region[2] = 1;
         std::vector<unsigned char> leftImageResized(width * height);
-        queueResize.enqueueReadImage(outputImageResized, CL_TRUE, origin, region, 0, 0, leftImageResized.data(), 0, &readEvent);//blocking so that we can encode full image
+        queueResizeLeft.enqueueReadBuffer(outputImageResizedLeft, CL_TRUE, 0, sizeof(unsigned char) * leftImageResized.size(), leftImageResized.data(), 0, &readEvent);
 
         // print profiling
-        runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
         double transferTime = (double)(readEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - readEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
-
-        std::cout << "Resize execution time in microseconds " << runTime / (float)10e3 << std::endl;
-        std::cout << "Resize read bus transfer time in microseconds " << transferTime / (float)10e3 << std::endl;
+        std::cout << "Left resize read bus transfer time in microseconds " << transferTime / (float)10e3 << std::endl;
 
         error = lodepng::encode(depthmapOut, leftImageResized, width, height, LCT_GREY, 8);
         if (error) std::cout << "encoder error left image: " << error << ": " << lodepng_error_text(error) << std::endl;
+
+
+        std::vector<unsigned char> rightImageResized(width * height);
+        queueResizeRight.enqueueReadBuffer(outputImageResizedRight, CL_TRUE, 0, sizeof(unsigned char) * rightImageResized.size(), rightImageResized.data(), 0, &readEvent);
+
+        // print profiling
+        transferTime = (double)(readEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - readEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+        std::cout << "Right resize read bus transfer time in microseconds " << transferTime / (float)10e3 << std::endl;
+
+        error = lodepng::encode(depthmapOutRight, rightImageResized, width, height, LCT_GREY, 8);
+        if (error) std::cout << "encoder error right image: " << error << ": " << lodepng_error_text(error) << std::endl;
 
     }
     catch (cl::Error err) {
@@ -436,8 +434,8 @@ int main()
     //// convert image to grayscale, ignoring the alpha channel
     //std::vector<unsigned char> leftImageGray(width * height);
     //std::vector<unsigned char> rightImageGray(width * height);
-    //GrayScaleImageConversion(leftImage, width, height, leftImageGray);
-    //GrayScaleImageConversion(rightImage, width, height, rightImageGray);
+    //GrayScaleConversion(leftImage, width, height, leftImageGray);
+    //GrayScaleConversion(rightImage, width, height, rightImageGray);
 
     //// resize image
     //std::vector<unsigned char> leftImageResized(width * height);

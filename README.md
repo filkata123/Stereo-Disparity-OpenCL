@@ -203,7 +203,7 @@ The code can be investigated in [OpenMP_ZNCC_Implementation/zncc_openmp.cpp](Ope
 
 Overall, this phase took around 3 hours.
 
-## Phase 4 (7)
+## Phase 4 (8:15)
 In phase 4, the ZNCC pipeline's speed was optimized with OpenCL.
 This implementation can be seen in the **OpenCL_ZNCC_Implementation** project.
 
@@ -218,14 +218,24 @@ How this is done can be seen in the [convert_grayscale](kernels/zncc_kernels.cl)
 
 After this, the same output image is directly passed to a kernel, which resizes the image, without reading the output on the host device.
 This is done to avoid unnecessary data transfers.
-The [resize_image](kernels/zncc_kernels.cl) kernel works similarly to the grayscale one, as it also takes Image2D as an input an output.
+The [resize_image](kernels/zncc_kernels.cl) kernel works similarly to the grayscale one, as it also takes Image2D as an input.
 As the [original CPU resizing function](moving_filter.cpp) was applied to a raw 1D vector, some minor changes had to be applied to the kernel implementation.
 A considerable time was spent investigating how to have differently-sized input and output objects for the kernel.
 At first, the author was unsure whether enqueuing the kernel was supposed to be done with the size of the input or output object.
 After figuring out through ChatGPT that the latter was the case, the [code](OpenCl_ZNCC_Implementation/zncc_opencl.cpp) was changed to reflect that.
 The time spent so far was around 7 hours.
 
-#TODO: Make the above into a function and apply to second image
+Initially, the output of this function was also an Image2D object.
+However, it was changed to a 1D buffer, as this would make it easier to parse in the ZNCC kernel later on.
+To correctly encode the 2D image to the 1D buffer, the output width had to be known.
+To implement this, three iterations were done.
+The first implementation was done by using the ```get_image_width()``` function on the input image and then dividing it by ```resize_factor```.
+However, this incurred needless calculations.
+Instead, passing the width as an argument was considered.
+However, the best solution was finally discovered in the ```get_global_size(0)``` function, which gives the width of the kernel itself, which is the same as the output buffer's.
+All of this was applied to both left and right image
+The above took an additional 1:15 hours.
+
 #TODO: Kernel for ZNCC (maybe split into sub-kernels if possible?)
 #TODO: Kernel for CrossCheck
 #TODO: Kernel for OcclusionFilling

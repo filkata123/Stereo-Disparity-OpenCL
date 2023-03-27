@@ -10,11 +10,10 @@ __kernel void convert_grayscale(__read_only image2d_t input_img, __write_only im
     write_imageui(out_image, coord, sum);    
 }
 
-__kernel void resize_image(const int resize_factor, __read_only image2d_t input_img, __write_only image2d_t out_image)
+__kernel void resize_image(const int resize_factor, __read_only image2d_t input_img, __global unsigned char* out_image)
 {	
 	int i = get_global_id(1);
     int j = get_global_id(0);
-
     // iterate through a resize_factor * resize_factor box and take its average as new pixel value
     int sum = 0;
     for (int k = i * resize_factor; k < (i + 1) * resize_factor; k++) {
@@ -24,6 +23,6 @@ __kernel void resize_image(const int resize_factor, __read_only image2d_t input_
         }
     }
 
-    // add pixel to new image
-    write_imageui(out_image, (int2)(j, i), sum / (resize_factor * resize_factor));
+    // add pixel to output buffer
+    out_image[i * get_global_size(0) + j] = (unsigned char)(sum / (resize_factor * resize_factor));
 }
