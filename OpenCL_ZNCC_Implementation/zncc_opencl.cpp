@@ -44,7 +44,7 @@ cl::Image2D EnqueueGrayScaleConversion(cl::Context& context, cl::Program program
     return outputImageGray;
 }
 
-cl::Buffer EnqueueResizeImage(cl::Context& context, cl::Program program, cl::Device device, cl::Image2D image, unsigned int width, unsigned int height, unsigned int resizeFactor, cl::CommandQueue& queue)
+cl::Buffer EnqueueResizeImage(cl::Context& context, cl::Program program, cl::Device device, cl::Image2D image, unsigned int width, unsigned int height, unsigned int resizeFactor)
 {
     // create output buffer object for image so that it can be accessed easier in the next part of the pipeline
     // read_write access given, so that buffer can be reused as input
@@ -68,191 +68,125 @@ cl::Buffer EnqueueResizeImage(cl::Context& context, cl::Program program, cl::Dev
     double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "Resize execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
-    queue = queueResize;
     return outputImageBuffResized;
 }
 
 
 // Apply ZNCC algorithm for a given window size and max disparity
-void EnqueuZNCC(const std::vector<unsigned char>& leftImage,
-    const std::vector<unsigned char>& rightImage,
+cl::Buffer EnqueueZNCC(cl::Context& context, cl::Program program, cl::Device device,
+    const cl::Buffer leftImage,
+    const cl::Buffer rightImage,
     int width, int height,
     int windowSize, int maxDisparity,
-    std::vector<int>& disparityMap,
-    char isLeftImage = 1
-)
+    char isLeftImage = 1)
 {
-    int imgSize = width * height;
+    cl::Buffer disparityMap(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
+    cl::Kernel kernelZNCC(program, "calc_zncc");
 
-    int halfWindowSize = (windowSize - 1) / 2;
+    // set arguments
+    kernelZNCC.setArg(0, windowSize);
+    kernelZNCC.setArg(1, isLeftImage);
+    kernelZNCC.setArg(2, leftImage);
+    kernelZNCC.setArg(3, rightImage);
+    kernelZNCC.setArg(4, disparityMap);
+    kernelZNCC.setArg(5, maxDisparity);
 
-    for (int y = 0; y < height; y++)
-    {
-        for (int x = 0; x < width; x++)
-        {
-            int bestDisp = 0;
-            float bestZNCC = -100.0;
-            bool isBorderPixel = false;
+    // create command queue with profiling enabled
+    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    cl::CommandQueue queueZNCC(context, device, properties);
+    cl::Event profEvent;
 
-            // handle borders | keep bestDisp at 0, so borders will be black
-            if (y >= height - halfWindowSize || x >= width - halfWindowSize ||
-                y <= halfWindowSize || x <= halfWindowSize)
-            {
-                isBorderPixel = true;
-            }
+    // queue the resizing kernel
+    queueZNCC.enqueueNDRangeKernel(kernelZNCC, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
+    profEvent.wait();
 
-            if (!isBorderPixel)
-            {
-                for (int d = 0; d < maxDisparity; d++)
-                {
-                    float zncc = 0.0;
-                    float numerator = 0.0, denominator1 = 0.0, denominator2 = 0.0;
-                    float leftMean = 0.0, rightMean = 0.0;
+    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    std::cout << "ZNCC execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
-                    // calculate mean for each window - future kernel - changes for different disparities, as the rightmean is calculated based on the disparity
-                    int avgCount = 0;
-                    for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)
-                    {
-                        for (int winX = -halfWindowSize; winX < halfWindowSize; winX++)
-                        {
-                            // don't allow pixel to go to previous row
-                            if (d > x + winX)
-                            {
-                                continue;
-                            }
-
-                            int leftPixelIndex = (y + winY) * width + (x + winX);
-                            int rightPixelIndex = (y + winY) * width + (x + winX - isLeftImage * d);
-                            if (rightPixelIndex >= imgSize ||
-                                rightPixelIndex <= 0)
-                            {
-                                continue;
-                            }
-
-                            leftMean += leftImage[leftPixelIndex];
-                            rightMean += rightImage[rightPixelIndex];
-                            avgCount++;
-                        }
-
-                    }
-                    leftMean = leftMean / avgCount;
-                    rightMean = rightMean / avgCount;
-
-                    for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)
-                    {
-                        for (int winX = -halfWindowSize; winX < halfWindowSize; winX++)
-                        {
-                            // don't allow pixel to go to previous row
-                            if (d > x + winX)
-                            {
-                                continue;
-                            }
-
-                            int leftPixelIndex = (y + winY) * width + (x + winX);
-                            int rightPixelIndex = (y + winY) * width + (x + winX - isLeftImage * d);
-                            if (rightPixelIndex >= imgSize ||
-                                rightPixelIndex <= 0)
-                            {
-                                continue;
-                            }
-
-                            // calculate zncc value for each window
-                            numerator += (leftImage[leftPixelIndex] - leftMean) * (rightImage[rightPixelIndex] - rightMean);
-                            denominator1 += pow(leftImage[leftPixelIndex] - leftMean, 2);
-                            denominator2 += pow(rightImage[rightPixelIndex] - rightMean, 2);
-
-                        }
-
-                    }
-
-                    float denominator = sqrt(denominator1) * sqrt(denominator2);
-                    if (denominator == 0) {
-                        break;
-                    }
-
-                    zncc = numerator / denominator;
-                    if (zncc > bestZNCC)
-                    {
-                        bestZNCC = zncc;
-                        bestDisp = d;
-                    }
-                }
-            }
-
-            disparityMap[y * width + x] = bestDisp;
-        }
-    }
+    return disparityMap;
 }
 
-void CrossCheck(const std::vector<int>& dispMapLeft, const std::vector<int>& dispMapRight, const int& width, const int& height, const int& crossDiff, std::vector<int>& crossDispMap)
+cl::Buffer EnqueueCrossCheck(cl::Context& context, cl::Program program, cl::Device device,
+    const cl::Buffer dispMapLeft,
+    const cl::Buffer dispMapRight,
+    const int& width, const int& height, 
+    const int& crossDiff)
 {
-    // Loop over all pixels inside the image boundary
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+    cl::Buffer crossCheckedImage(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
+    cl::Kernel kernelCrossCheck(program, "cross_check");
 
-            // Get the disparity values for the current pixel in both directions
-            int dispLeft = dispMapLeft[y * width + x];
-            int dispRight = dispMapRight[y * width + x];
+    // set arguments
+    kernelCrossCheck.setArg(0, crossDiff);
+    kernelCrossCheck.setArg(1, dispMapLeft);
+    kernelCrossCheck.setArg(2, dispMapRight);
+    kernelCrossCheck.setArg(3, crossCheckedImage);
 
-            // Check if the disparity values agree | abs used to account for rounding errors
-            if (std::abs(dispLeft - dispRight) <= crossDiff) {
-                // If the disparities agree, use the left disparity value as the final disparity for the pixel
-                crossDispMap[y * width + x] = dispLeft;
-            }
-            else {
-                // Otherwise, mark the pixel as invalid
-                crossDispMap[y * width + x] = 0;
-            }
-        }
-    }
+    // create command queue with profiling enabled
+    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    cl::CommandQueue queueCrossCheck(context, device, properties);
+    cl::Event profEvent;
+
+    // queue the resizing kernel
+    queueCrossCheck.enqueueNDRangeKernel(kernelCrossCheck, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
+    profEvent.wait();
+
+    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    std::cout << "Cross-checking execution time in microseconds " << runTime / (float)10e3 << std::endl;
+
+    return crossCheckedImage;
 }
 
-void OcclusionFilling(const std::vector<int>& dispMap, const int& width, const int& height, const int& nCount, std::vector<int>& dispMapFilled)
+cl::Buffer EnqueueOcclusionFilling(cl::Context& context, cl::Program program, cl::Device device,
+    const cl::Buffer crossCheckedImage, 
+    const int& width, const int& height, const int& nCount)
 {
-    // Copy the input disparity map to the output disparity map
-    std::copy(dispMap.begin(), dispMap.end(), dispMapFilled.begin());
+    cl::Kernel kernelFilling(program, "occlusion_filling");
 
-    // Loop over all pixels inside the image boundary
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
+    // set arguments
+    kernelFilling.setArg(0, nCount);
+    kernelFilling.setArg(1, crossCheckedImage);
 
-            // handle borders | keep bestDisp at 0, so borders will stay black
-            if (y >= height - (nCount / 2) || x >= width - (nCount / 2) ||
-                y <= nCount / 2 || x <= nCount / 2)
-            {
-                continue;
-            }
+    // create command queue with profiling enabled
+    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    cl::CommandQueue queueFilling(context, device, properties);
+    cl::Event profEvent;
 
-            // Check if the current pixel is marked as invalid
-            if (dispMap[y * width + x] == 0) {
+    // queue the resizing kernel
+    queueFilling.enqueueNDRangeKernel(kernelFilling, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
+    profEvent.wait();
 
-                // Initialize the list of valid disparity values in the n-neighborhood of the current pixel
-                std::vector<int> neighbors;
+    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    std::cout << "Occlusion filling execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
-                // Loop over the n-neighbors of the current pixel
-                for (int dy = -nCount / 2; dy <= nCount / 2; dy++) {
-                    for (int dx = -nCount / 2; dx <= nCount / 2; dx++) {
-                        // Skip the center pixel
-                        if (dx == 0 && dy == 0) continue;
+    return crossCheckedImage;
+}
 
-                        // Get the disparity value for the current neighbor
-                        int neighbor_disp = dispMap[(y + dy) * width + (x + dx)];
+cl::Buffer EnqueueNormalizeToChar(cl::Context& context, cl::Program program, cl::Device device, cl::CommandQueue& queue,
+    const cl::Buffer filledImage, 
+    const int& width, const int& height, const int& ndisp)
+{
+    cl::Buffer normImage(context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(unsigned char) * (width * height));
+    cl::Kernel kernelNorm(program, "normalize_to_char");
 
-                        // If the neighbor is valid, add its disparity value to the list
-                        if (neighbor_disp > 0) {
-                            neighbors.push_back(neighbor_disp);
-                        }
-                    }
-                }
+    // set arguments
+    kernelNorm.setArg(0, ndisp);
+    kernelNorm.setArg(1, filledImage);
+    kernelNorm.setArg(2, normImage);
 
-                // If at least one valid disparity value was found in the n-neighborhood,
-                // set the current pixel's disparity value to the median of the valid values
-                if (!neighbors.empty()) {
-                    dispMapFilled[y * width + x] = neighbors[neighbors.size() / 2];
-                }
-            }
-        }
-    }
+    // create command queue with profiling enabled
+    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+    cl::CommandQueue queueNorm(context, device, properties);
+    cl::Event profEvent;
+
+    // queue the resizing kernel
+    queueNorm.enqueueNDRangeKernel(kernelNorm, cl::NullRange, width * height, cl::NullRange, 0, &profEvent);
+    profEvent.wait();
+
+    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    std::cout << "Image normalization execution time in microseconds " << runTime / (float)10e3 << std::endl;
+
+    queue = queueNorm;
+    return normImage;
 }
 
 void NormalizeToChar(const std::vector<int>& dispMap, const int& width, const int& height, const int& ndisp, std::vector<unsigned char>& normVec)
@@ -282,8 +216,7 @@ int main()
     const char* leftImgName = "../img/im0.png";
     const char* rightImgName = "../img/im1.png";
 
-    const char* depthmapOut = "../img/cl_depthmap_left.png";
-    const char* depthmapOutRight = "../img/cl_depthmap_right.png";
+    const char* depthmapOut = "../img/cl_depthmap.png";
 
     // create containers for raw images
     std::vector<unsigned char> leftImage;
@@ -296,7 +229,6 @@ int main()
 
     error = lodepng::decode(rightImage, width, height, rightImgName, LCT_RGBA, 8);
     if (error) std::cout << "decoder error second image: " << error << ": " << lodepng_error_text(error) << std::endl;
-
 
     try
     {
@@ -349,6 +281,12 @@ int main()
         std::cout << "Max read image arguments: " << devMaxReadImageArgs << std::endl;
 
         std::cout << "------------IMPLEMENTATION------------" << std::endl;
+
+        // start timing execution time
+        LARGE_INTEGER start, end, frequency;
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&start);
+
         // Create source
         // Note: Both kernels are stored in one kernel file as
         // OpenCL C++ seems to have an issue if you pass a second kernel file
@@ -378,34 +316,47 @@ int main()
         ndisp = ndisp * (static_cast<float>(width) / oldWidth);
 
         // enqueue resizing
-        cl::CommandQueue queueResizeLeft, queueResizeRight;
         std::cout << "Resizing left image to 1/16 size..." << std::endl;
-        auto outputImageResizedLeft = EnqueueResizeImage(context, program, device, outputImageGrayLeft, width, height, resizeFactor, queueResizeLeft);
+        auto outputImageResizedLeft = EnqueueResizeImage(context, program, device, outputImageGrayLeft, width, height, resizeFactor);
         std::cout << "Resizing right image to 1/16 size..." << std::endl;
-        auto outputImageResizedRight = EnqueueResizeImage(context, program, device, outputImageGrayRight, width, height, resizeFactor, queueResizeRight);
+        auto outputImageResizedRight = EnqueueResizeImage(context, program, device, outputImageGrayRight, width, height, resizeFactor);
+        
+        // enqueue ZNCC
+        std::cout << "Applying ZNCC to left image..." << std::endl;
+        auto outputZNCCLeft = EnqueueZNCC(context, program, device, outputImageResizedLeft, outputImageResizedRight, width, height, winSize, ndisp);
+        std::cout << "Applying ZNCC to left image..." << std::endl;
+        auto outputZNCCRight = EnqueueZNCC(context, program, device, outputImageResizedRight, outputImageResizedLeft, width, height, winSize, ndisp, -1);
+        
+        // enqueue cross-check
+        std::cout << "Applying cross-check..." << std::endl;
+        auto outputCrossCheck = EnqueueCrossCheck(context, program, device, outputZNCCLeft, outputZNCCRight, width, height, crossDiff);
+
+        // enqueue occlusion filling
+        std::cout << "Applying occlusion filling..." << std::endl;
+        auto outputOcclusionFilling = EnqueueOcclusionFilling(context, program, device, outputCrossCheck, width, height, neighbours);
+
+        //// enqueue normalization
+        cl::CommandQueue queueNorm;
+        std::cout << "Applying image normalization..." << std::endl;
+        auto outputNorm = EnqueueNormalizeToChar(context, program, device, queueNorm, outputOcclusionFilling, width, height, ndisp);
 
         // read the rescaled image output and put it into a vector
         cl::Event readEvent;
-        std::vector<unsigned char> leftImageResized(width * height);
-        queueResizeLeft.enqueueReadBuffer(outputImageResizedLeft, CL_TRUE, 0, sizeof(unsigned char) * leftImageResized.size(), leftImageResized.data(), 0, &readEvent);
+        std::vector<unsigned char> normImage(width * height);
+        queueNorm.enqueueReadBuffer(outputNorm, CL_TRUE, 0, sizeof(unsigned char) * normImage.size(), normImage.data(), 0, &readEvent);
 
         // print profiling
         double transferTime = (double)(readEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - readEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
-        std::cout << "Left resize read bus transfer time in microseconds " << transferTime / (float)10e3 << std::endl;
+        std::cout << "Final read bus transfer time in microseconds " << transferTime / (float)10e3 << std::endl;
 
-        error = lodepng::encode(depthmapOut, leftImageResized, width, height, LCT_GREY, 8);
-        if (error) std::cout << "encoder error left image: " << error << ": " << lodepng_error_text(error) << std::endl;
+        // end execution timing and print
+        QueryPerformanceCounter(&end);
+        double elapsed_time;
+        elapsed_time = static_cast<double>(end.QuadPart - start.QuadPart) * 1000000 / frequency.QuadPart;
+        std::cout << "Total elapsed time: " << elapsed_time << " microseconds\n";
 
-
-        std::vector<unsigned char> rightImageResized(width * height);
-        queueResizeRight.enqueueReadBuffer(outputImageResizedRight, CL_TRUE, 0, sizeof(unsigned char) * rightImageResized.size(), rightImageResized.data(), 0, &readEvent);
-
-        // print profiling
-        transferTime = (double)(readEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - readEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
-        std::cout << "Right resize read bus transfer time in microseconds " << transferTime / (float)10e3 << std::endl;
-
-        error = lodepng::encode(depthmapOutRight, rightImageResized, width, height, LCT_GREY, 8);
-        if (error) std::cout << "encoder error right image: " << error << ": " << lodepng_error_text(error) << std::endl;
+        error = lodepng::encode(depthmapOut, normImage, width, height, LCT_GREY, 8);
+        if (error) std::cout << "encoder error: " << error << ": " << lodepng_error_text(error) << std::endl;
 
     }
     catch (cl::Error err) {
@@ -418,64 +369,4 @@ int main()
             << std::endl;
     }
 
-
-
-
-
-
-    //// start timing execution time
-    //LARGE_INTEGER start, end, frequency;
-    //double elapsed_time;
-
-    //QueryPerformanceFrequency(&frequency);
-
-    //QueryPerformanceCounter(&start);
-
-    //// convert image to grayscale, ignoring the alpha channel
-    //std::vector<unsigned char> leftImageGray(width * height);
-    //std::vector<unsigned char> rightImageGray(width * height);
-    //GrayScaleConversion(leftImage, width, height, leftImageGray);
-    //GrayScaleConversion(rightImage, width, height, rightImageGray);
-
-    //// resize image
-    //std::vector<unsigned char> leftImageResized(width * height);
-    //std::vector<unsigned char> rightImageResized(width * height);
-    //ResizeImage(leftImageGray, width, height, resizeFactor, leftImageResized);
-    //ResizeImage(rightImageGray, width, height, resizeFactor, rightImageResized);
-
-    //// update values depending on resolution
-    //int oldWidth = width;
-    //width = width / resizeFactor;
-    //height = height / resizeFactor;
-    //ndisp = ndisp * (static_cast<float>(width) / oldWidth);
-
-    //// apply zncc
-    //std::vector<int> leftImageDisparity(width * height);
-    //std::vector<int> rightImageDisparity(width * height);
-    //CalcZNCC(leftImageResized, rightImageResized, width, height, win_size, ndisp, leftImageDisparity);
-    //CalcZNCC(rightImageResized, leftImageResized, width, height, win_size, ndisp, rightImageDisparity, -1);
-
-    //// CrossChecking
-    //std::vector<int> crossCheckedMap(width * height);
-    //CrossCheck(leftImageDisparity, rightImageDisparity, width, height, crossDiff, crossCheckedMap);
-
-    //// occlusion filling
-    //std::vector<int> oclussionFilledMap(width * height);
-    //OcclusionFilling(crossCheckedMap, width, height, neighbours, oclussionFilledMap);
-
-    //// normalization to 8 bit
-    //std::vector<unsigned char> depthmapNormalized(width * height);
-    //NormalizeToChar(oclussionFilledMap, width, height, ndisp, depthmapNormalized);
-
-    //// end execution timing and print
-    //QueryPerformanceCounter(&end);
-
-    //elapsed_time = static_cast<double>(end.QuadPart - start.QuadPart) / frequency.QuadPart;
-    //std::cout << "Elapsed time: " << elapsed_time << " seconds\n";
-
-    //std::cout << "Elapsed time: " << elapsed_time / 60 << " minutes\n";
-
-    //// encode resized and grayscaled images (im*_out)
-    //error = lodepng::encode(depthmapOut, depthmapNormalized, width, height, LCT_GREY, 8);
-    //if (error) std::cout << "encoder error first image: " << error << ": " << lodepng_error_text(error) << std::endl;
 }

@@ -84,7 +84,7 @@ void CalcZNCC(const std::vector<unsigned char>& leftImage,
                     float numerator = 0.0, denominator1 = 0.0, denominator2 = 0.0;
                     float leftMean = 0.0, rightMean = 0.0;
 
-                    // calculate mean for each window - future kernel - changes for different disparities, as the rightmean is calculated based on the disparity
+                    // calculate mean for each window - changes for different disparities, as the rightmean is calculated based on the disparity
                     int avgCount = 0;
 #pragma omp parallel for collapse(2)
                     for (int winY = -halfWindowSize; winY < halfWindowSize; winY++)

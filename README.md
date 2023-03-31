@@ -236,6 +236,9 @@ However, the best solution was finally discovered in the ```get_global_size(0)``
 All of this was applied to both left and right image
 The above took an additional 1:15 hours.
 
-#TODO: Kernel for ZNCC (maybe split into sub-kernels if possible?)
-#TODO: Kernel for CrossCheck
-#TODO: Kernel for OcclusionFilling
+#TODO: Write about kernel for ZNCC 2D, crosscheck, occlusion filling, timing
+18:30 - 21:00
+18:00 - 20:30
+
+#next phase
+#TODO: 3D ZNCC Kernel
