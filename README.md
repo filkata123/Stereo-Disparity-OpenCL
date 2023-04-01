@@ -203,7 +203,7 @@ The code can be investigated in [OpenMP_ZNCC_Implementation/zncc_openmp.cpp](Ope
 
 Overall, this phase took around 3 hours.
 
-## Phase 4 (8:15)
+## Phase 4 (13:15)
 In phase 4, the ZNCC pipeline's speed was optimized with OpenCL.
 This implementation can be seen in the **OpenCL_ZNCC_Implementation** project.
 
@@ -236,9 +236,47 @@ However, the best solution was finally discovered in the ```get_global_size(0)``
 All of this was applied to both left and right image
 The above took an additional 1:15 hours.
 
-#TODO: Write about kernel for ZNCC 2D, crosscheck, occlusion filling, timing
-18:30 - 21:00
-18:00 - 20:30
+Next, the zncc algorithm, the cross-checking, occlusion filling and normalization parts of the pipeline were converted to their own kernels.
+These kernels took a buffer as an input and provided a buffer as an output.
+Similarly to before, this was done to minimize device-host transfers.
+The output was finally read after normalizing the disparity.
+These four kernels can be found [kernels/zncc_kernels.cl](kernels/zncc_kernels.cl) as ```calc_zncc```, ```cross_check```, ```occlusion_filling``` and ```normalize_to_char```.
+Separate kernels were created as these parts of the pipeline were sequential and had nested loops which could be unrolled and ran on the GPU.
+Code-wise, the kernels had very little note-worthy things about them.
+They were all 2D kernels so that the work-items created can each take care of one pixel. 
+Lessons learned from the resizing kernel were applied here as well, so that the width and height are not passed as arguments, but gotten from the kernel functions.
+The ZNCC kernel could be optimized to use a 3D kernel, so that a work item is applied on one disparity calculation, but as this optimization had to make use of local memory and memory blocks it was left for the next phase.
+The occlusion filling implementation required a variable size array to be created to keep track of the neighbors which it uses to fill in invalid pixels.
+As this is not possible in C, a local pointer was initialized with the size of the neighbourhood in the kernel.
+This was done by passing it as a local argument.
+Kernel profiling was used to benchmark the execution time of each kernel.
+Below, a table can be seen which shows the kernel and its respective time.
 
-#next phase
+| Kernel                    | Time (microseconds)|
+| :---                      |    :----:          |
+| convert_grayscale (left)  |  11.9808         |
+| convert_grayscale (right) |   11.776           |
+| resize_image (left)       | 14.5408             |
+| resize_image (right)      |  6.656              |
+| calc_zncc (left)          | 5976.17            |
+| calc_zncc (right)         |  6204.21           |
+| cross_check               | 1.3312             |
+| occlusion_filling         | 23.1424             |
+| normalize_to_char         | 0.7168             |
+
+The total execution time of the kernels is around 12 394 microseconds (12 milliseconds).
+The bus transfer done by reading after normalization takes an additional 2.0512 microseconds.
+Window's ```QueryPerformanceCounter``` was used to track the execution time from loading the kernel and until after the buffer has been read.
+According to it, the total execution time took 256 175 microseconds (256 milliseconds).
+This is quite the improvement to openmp and the original implementation.
+
+Below, an image that prints out these execution times with information about the device can be seen.
+
+![](diary_img/OpenCL_execution.png "OpenCL ZNCC pipeline cmd output")
+
+Implementing the rest of the ZNCC pipeline took 5 hours.
+The phase took in total 13:15 hours
+
+## Phase 5 ()
 #TODO: 3D ZNCC Kernel
+#TODO: CL_MEM_USE_HOST_PTR

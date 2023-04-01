@@ -149,7 +149,7 @@ __kernel void cross_check(const int cross_diff,
     
 }
 
-__kernel void occlusion_filling(const int n_count,
+__kernel void occlusion_filling(const int n_count, __local int* neighbours,
     __global int* cross_checked_image)
 {	
     int x = get_global_id(0); // width index
@@ -166,7 +166,6 @@ __kernel void occlusion_filling(const int n_count,
         if (cross_checked_image[y * width + x] == 0) {
 
             // Initialize the list of valid disparity values in the n-neighborhood of the current pixel
-            int neighbours[1024]; // 32 x 32 TODO: not hardcode
             int i = 0;
 
             // Loop over the n-neighbors of the current pixel

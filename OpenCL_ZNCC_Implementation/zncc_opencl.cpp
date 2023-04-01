@@ -10,78 +10,77 @@
 
 #include <iostream>
 #include <fstream>
-#include <math.h> 
 #include <vector>
 #include <Windows.h>
 
-cl::Image2D EnqueueGrayScaleConversion(cl::Context& context, cl::Program program, cl::Device device, std::vector<unsigned char>& image, unsigned int width, unsigned int height)
+// cl_info struct type to hold reused opencl objects
+struct cl_info {
+    cl::Context context;   
+    cl::Program program;
+    cl::Device device;
+    cl::CommandQueue queue;
+    cl::Event profEvent;
+} cl_info_obj;
+
+cl::Image2D EnqueueGrayScaleConversion(std::vector<unsigned char>& image, unsigned int width, unsigned int height)
 {
+    // setup two formats for the Image2D objects
     cl::ImageFormat rgbaFormat{ CL_RGBA, CL_UNSIGNED_INT8 };
     cl::ImageFormat grayscaleFormat{ CL_DEPTH, CL_UNSIGNED_INT8 };
     // create input image object, which is read_only and has a format of RGBA + 8 bit depth
-    cl::Image2D inputImage(context, CL_MEM_READ_ONLY | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, rgbaFormat, width, height, 0, image.data()); // TODO: To be improved with CL_MEM_USE_HOST_PTR ?
+    cl::Image2D inputImage(cl_info_obj.context, CL_MEM_READ_ONLY | CL_MEM_HOST_NO_ACCESS | CL_MEM_COPY_HOST_PTR, rgbaFormat, width, height, 0, image.data()); // TODO: To be improved with CL_MEM_USE_HOST_PTR ?
     // create output image object, which is read and write so that it can be reused by next kernel; use format of grayscale + 8 bit depth
-    cl::Image2D outputImageGray(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, grayscaleFormat, width, height);
-    cl::Kernel kernelGrayscale(program, "convert_grayscale");
+    cl::Image2D outputImageGray(cl_info_obj.context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, grayscaleFormat, width, height);
+    // create a kernel object from the grayscale kernel
+    cl::Kernel kernelGrayscale(cl_info_obj.program, "convert_grayscale");
 
     // set arguments
     kernelGrayscale.setArg(0, inputImage);
     kernelGrayscale.setArg(1, outputImageGray);
 
-    // create command queue with profiling enabled
-    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-    cl::CommandQueue queue(context, device, properties);
-    cl::Event profEvent;
-
-    // queue the kernel
-    queue.enqueueNDRangeKernel(kernelGrayscale, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-    profEvent.wait();
+    // queue the grayscale kernel
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelGrayscale, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
+    cl_info_obj.profEvent.wait();
 
     // print profiling
-    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    double runTime = (double)(cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "Grayscale conversion execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
     return outputImageGray;
 }
 
-cl::Buffer EnqueueResizeImage(cl::Context& context, cl::Program program, cl::Device device, cl::Image2D image, unsigned int width, unsigned int height, unsigned int resizeFactor)
+cl::Buffer EnqueueResizeImage(cl::Image2D image, unsigned int width, unsigned int height, unsigned int resizeFactor)
 {
     // create output buffer object for image so that it can be accessed easier in the next part of the pipeline
     // read_write access given, so that buffer can be reused as input
-    cl::Buffer outputImageBuffResized(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned char) * (width * height));
-    cl::Kernel kernelResize(program, "resize_image");
+    cl::Buffer outputImageBuffResized(cl_info_obj.context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned char) * (width * height));
+    cl::Kernel kernelResize(cl_info_obj.program, "resize_image");
 
     // set arguments
     kernelResize.setArg(0, resizeFactor);
     kernelResize.setArg(1, image);
     kernelResize.setArg(2, outputImageBuffResized);
 
-    // create command queue with profiling enabled
-    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-    cl::CommandQueue queueResize(context, device, properties);
-    cl::Event profEvent;
-
     // queue the resizing kernel
-    queueResize.enqueueNDRangeKernel(kernelResize, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-    profEvent.wait();
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelResize, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
+    cl_info_obj.profEvent.wait();
 
-    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    // print profiling
+    double runTime = (double)(cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "Resize execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
     return outputImageBuffResized;
 }
 
-
-// Apply ZNCC algorithm for a given window size and max disparity
-cl::Buffer EnqueueZNCC(cl::Context& context, cl::Program program, cl::Device device,
-    const cl::Buffer leftImage,
+cl::Buffer EnqueueZNCC(const cl::Buffer leftImage,
     const cl::Buffer rightImage,
     int width, int height,
     int windowSize, int maxDisparity,
     char isLeftImage = 1)
 {
-    cl::Buffer disparityMap(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
-    cl::Kernel kernelZNCC(program, "calc_zncc");
+    // create buffer with read/write access so that it can be reused
+    cl::Buffer disparityMap(cl_info_obj.context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
+    cl::Kernel kernelZNCC(cl_info_obj.program, "calc_zncc");
 
     // set arguments
     kernelZNCC.setArg(0, windowSize);
@@ -91,29 +90,25 @@ cl::Buffer EnqueueZNCC(cl::Context& context, cl::Program program, cl::Device dev
     kernelZNCC.setArg(4, disparityMap);
     kernelZNCC.setArg(5, maxDisparity);
 
-    // create command queue with profiling enabled
-    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-    cl::CommandQueue queueZNCC(context, device, properties);
-    cl::Event profEvent;
+    // queue the zncc kernel
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelZNCC, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
+    cl_info_obj.profEvent.wait();
 
-    // queue the resizing kernel
-    queueZNCC.enqueueNDRangeKernel(kernelZNCC, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-    profEvent.wait();
-
-    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    // print profiling
+    double runTime = (double)(cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "ZNCC execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
     return disparityMap;
 }
 
-cl::Buffer EnqueueCrossCheck(cl::Context& context, cl::Program program, cl::Device device,
-    const cl::Buffer dispMapLeft,
+cl::Buffer EnqueueCrossCheck(const cl::Buffer dispMapLeft,
     const cl::Buffer dispMapRight,
     const int& width, const int& height, 
     const int& crossDiff)
 {
-    cl::Buffer crossCheckedImage(context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
-    cl::Kernel kernelCrossCheck(program, "cross_check");
+    // create buffer with read/write access so that it can be reused
+    cl::Buffer crossCheckedImage(cl_info_obj.context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
+    cl::Kernel kernelCrossCheck(cl_info_obj.program, "cross_check");
 
     // set arguments
     kernelCrossCheck.setArg(0, crossDiff);
@@ -121,80 +116,60 @@ cl::Buffer EnqueueCrossCheck(cl::Context& context, cl::Program program, cl::Devi
     kernelCrossCheck.setArg(2, dispMapRight);
     kernelCrossCheck.setArg(3, crossCheckedImage);
 
-    // create command queue with profiling enabled
-    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-    cl::CommandQueue queueCrossCheck(context, device, properties);
-    cl::Event profEvent;
+    // queue the cross check kernel
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelCrossCheck, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
+    cl_info_obj.profEvent.wait();
 
-    // queue the resizing kernel
-    queueCrossCheck.enqueueNDRangeKernel(kernelCrossCheck, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-    profEvent.wait();
-
-    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    // print profiling
+    double runTime = (double)(cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "Cross-checking execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
     return crossCheckedImage;
 }
 
-cl::Buffer EnqueueOcclusionFilling(cl::Context& context, cl::Program program, cl::Device device,
-    const cl::Buffer crossCheckedImage, 
+cl::Buffer EnqueueOcclusionFilling(const cl::Buffer crossCheckedImage, 
     const int& width, const int& height, const int& nCount)
 {
-    cl::Kernel kernelFilling(program, "occlusion_filling");
+    // no buffer created here, as the input image's invalid pixels are filled in directly
+    cl::Kernel kernelFilling(cl_info_obj.program, "occlusion_filling");
 
     // set arguments
     kernelFilling.setArg(0, nCount);
-    kernelFilling.setArg(1, crossCheckedImage);
+    kernelFilling.setArg(1, nCount * nCount * sizeof(int), NULL);
+    kernelFilling.setArg(2, crossCheckedImage);
 
-    // create command queue with profiling enabled
-    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-    cl::CommandQueue queueFilling(context, device, properties);
-    cl::Event profEvent;
+    // queue the occlusion filling kernel
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelFilling, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
+    cl_info_obj.profEvent.wait();
 
-    // queue the resizing kernel
-    queueFilling.enqueueNDRangeKernel(kernelFilling, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &profEvent);
-    profEvent.wait();
-
-    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    // print profiling
+    double runTime = (double)(cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "Occlusion filling execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
     return crossCheckedImage;
 }
 
-cl::Buffer EnqueueNormalizeToChar(cl::Context& context, cl::Program program, cl::Device device, cl::CommandQueue& queue,
-    const cl::Buffer filledImage, 
+cl::Buffer EnqueueNormalizeToChar(const cl::Buffer filledImage, 
     const int& width, const int& height, const int& ndisp)
 {
-    cl::Buffer normImage(context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(unsigned char) * (width * height));
-    cl::Kernel kernelNorm(program, "normalize_to_char");
+    // buffer with write only permission as it will not be reused in the future anymore
+    cl::Buffer normImage(cl_info_obj.context, CL_MEM_WRITE_ONLY | CL_MEM_HOST_READ_ONLY, sizeof(unsigned char) * (width * height));
+    cl::Kernel kernelNorm(cl_info_obj.program, "normalize_to_char");
 
     // set arguments
     kernelNorm.setArg(0, ndisp);
     kernelNorm.setArg(1, filledImage);
     kernelNorm.setArg(2, normImage);
 
-    // create command queue with profiling enabled
-    cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
-    cl::CommandQueue queueNorm(context, device, properties);
-    cl::Event profEvent;
-
     // queue the resizing kernel
-    queueNorm.enqueueNDRangeKernel(kernelNorm, cl::NullRange, width * height, cl::NullRange, 0, &profEvent);
-    profEvent.wait();
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelNorm, cl::NullRange, width * height, cl::NullRange, 0, &cl_info_obj.profEvent);
+    cl_info_obj.profEvent.wait();
 
-    double runTime = (double)(profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
+    // print profiling
+    double runTime = (double)(cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - cl_info_obj.profEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
     std::cout << "Image normalization execution time in microseconds " << runTime / (float)10e3 << std::endl;
 
-    queue = queueNorm;
     return normImage;
-}
-
-void NormalizeToChar(const std::vector<int>& dispMap, const int& width, const int& height, const int& ndisp, std::vector<unsigned char>& normVec)
-{
-    // Loop over all pixels and normalize the disparity values
-    for (int i = 0; i < width * height; i++) {
-        normVec[i] = static_cast<unsigned char>(static_cast<float>(dispMap[i]) / ndisp * 255);
-    }
 }
 
 int main()
@@ -288,7 +263,7 @@ int main()
         QueryPerformanceCounter(&start);
 
         // Create source
-        // Note: Both kernels are stored in one kernel file as
+        // Note: All kernels are stored in one kernel file as
         // OpenCL C++ seems to have an issue if you pass a second kernel file
         std::ifstream kernelFile("../kernels/zncc_kernels.cl");
         std::string src(std::istreambuf_iterator<char>(kernelFile), (std::istreambuf_iterator<char>()));
@@ -301,12 +276,24 @@ int main()
 
         program.build("-cl-std=CL1.2");
 
+        // create command queue with profiling enabled
+        cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
+        cl::CommandQueue queue(context, device, properties);
+        cl::Event profEvent;
+
+        // fill in custom struct
+        cl_info_obj.context = context;
+        cl_info_obj.program = program;
+        cl_info_obj.device = device;
+        cl_info_obj.queue = queue;
+        cl_info_obj.profEvent = profEvent;
+
         // Kernel logic
         //// Grayscale conversion
         std::cout << "Converting left image to grayscale..." << std::endl;
-        auto outputImageGrayLeft = EnqueueGrayScaleConversion(context, program, device, leftImage, width, height);
+        auto outputImageGrayLeft = EnqueueGrayScaleConversion(leftImage, width, height);
         std::cout << "Converting right image to grayscale..." << std::endl;
-        auto outputImageGrayRight = EnqueueGrayScaleConversion(context, program, device, rightImage, width, height);
+        auto outputImageGrayRight = EnqueueGrayScaleConversion(rightImage, width, height);
 
         //// Rescaling
         // update values depending on resolution
@@ -317,33 +304,32 @@ int main()
 
         // enqueue resizing
         std::cout << "Resizing left image to 1/16 size..." << std::endl;
-        auto outputImageResizedLeft = EnqueueResizeImage(context, program, device, outputImageGrayLeft, width, height, resizeFactor);
+        auto outputImageResizedLeft = EnqueueResizeImage(outputImageGrayLeft, width, height, resizeFactor);
         std::cout << "Resizing right image to 1/16 size..." << std::endl;
-        auto outputImageResizedRight = EnqueueResizeImage(context, program, device, outputImageGrayRight, width, height, resizeFactor);
+        auto outputImageResizedRight = EnqueueResizeImage(outputImageGrayRight, width, height, resizeFactor);
         
         // enqueue ZNCC
         std::cout << "Applying ZNCC to left image..." << std::endl;
-        auto outputZNCCLeft = EnqueueZNCC(context, program, device, outputImageResizedLeft, outputImageResizedRight, width, height, winSize, ndisp);
-        std::cout << "Applying ZNCC to left image..." << std::endl;
-        auto outputZNCCRight = EnqueueZNCC(context, program, device, outputImageResizedRight, outputImageResizedLeft, width, height, winSize, ndisp, -1);
+        auto outputZNCCLeft = EnqueueZNCC(outputImageResizedLeft, outputImageResizedRight, width, height, winSize, ndisp);
+        std::cout << "Applying ZNCC to right image..." << std::endl;
+        auto outputZNCCRight = EnqueueZNCC(outputImageResizedRight, outputImageResizedLeft, width, height, winSize, ndisp, -1);
         
         // enqueue cross-check
         std::cout << "Applying cross-check..." << std::endl;
-        auto outputCrossCheck = EnqueueCrossCheck(context, program, device, outputZNCCLeft, outputZNCCRight, width, height, crossDiff);
+        auto outputCrossCheck = EnqueueCrossCheck(outputZNCCLeft, outputZNCCRight, width, height, crossDiff);
 
         // enqueue occlusion filling
         std::cout << "Applying occlusion filling..." << std::endl;
-        auto outputOcclusionFilling = EnqueueOcclusionFilling(context, program, device, outputCrossCheck, width, height, neighbours);
+        auto outputOcclusionFilling = EnqueueOcclusionFilling(outputCrossCheck, width, height, neighbours);
 
         //// enqueue normalization
-        cl::CommandQueue queueNorm;
         std::cout << "Applying image normalization..." << std::endl;
-        auto outputNorm = EnqueueNormalizeToChar(context, program, device, queueNorm, outputOcclusionFilling, width, height, ndisp);
+        auto outputNorm = EnqueueNormalizeToChar(outputOcclusionFilling, width, height, ndisp);
 
-        // read the rescaled image output and put it into a vector
+        // read the normalized depthmap output and put it into a vector
         cl::Event readEvent;
         std::vector<unsigned char> normImage(width * height);
-        queueNorm.enqueueReadBuffer(outputNorm, CL_TRUE, 0, sizeof(unsigned char) * normImage.size(), normImage.data(), 0, &readEvent);
+        cl_info_obj.queue.enqueueReadBuffer(outputNorm, CL_TRUE, 0, sizeof(unsigned char) * normImage.size(), normImage.data(), 0, &readEvent);
 
         // print profiling
         double transferTime = (double)(readEvent.getProfilingInfo<CL_PROFILING_COMMAND_END>() - readEvent.getProfilingInfo<CL_PROFILING_COMMAND_START>());
@@ -352,8 +338,8 @@ int main()
         // end execution timing and print
         QueryPerformanceCounter(&end);
         double elapsed_time;
-        elapsed_time = static_cast<double>(end.QuadPart - start.QuadPart) * 1000000 / frequency.QuadPart;
-        std::cout << "Total elapsed time: " << elapsed_time << " microseconds\n";
+        elapsed_time = static_cast<double>(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+        std::cout << "Total elapsed time: " << elapsed_time * 1000000 << " microseconds\n";
 
         error = lodepng::encode(depthmapOut, normImage, width, height, LCT_GREY, 8);
         if (error) std::cout << "encoder error: " << error << ": " << lodepng_error_text(error) << std::endl;
