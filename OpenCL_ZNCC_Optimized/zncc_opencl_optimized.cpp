@@ -281,7 +281,7 @@ int main()
         cl::Context context(devices);
         cl::Program program(context, sources);
 
-        program.build("-cl-std=CL2.0"); //#TODO: note down
+        program.build("-cl-std=CL2.0"); //#TODO: note down using 2.0 for atomic
 
         // create command queue with profiling enabled
         cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };

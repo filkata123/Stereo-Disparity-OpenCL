@@ -31,7 +31,6 @@ __kernel void resize_image(const int resize_factor, __read_only image2d_t input_
 __kernel void calc_zncc(const int half_window_size, const char is_left_image,
     const __global unsigned char* left_image, const __global unsigned char* right_image,  __global int* disparity_map)
 {	
-    // TODO: add 3rd dimension, add local size of max_disparity, add a memblock right before zncc comparison - then add mutex so as to find biggest value
     // bestZncc and bestDisp become local for the work group
     const int x = get_global_id(0); // width index
 	const int y = get_global_id(1); // height index
