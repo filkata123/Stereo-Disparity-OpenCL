@@ -278,5 +278,32 @@ Implementing the rest of the ZNCC pipeline took 5 hours.
 The phase took in total 13:15 hours
 
 ## Phase 5 ()
+Phase 5 was all about the optimization of the implementation created in the previous phase.
+The code was copied into a new project called **OpenCL_ZNCC_Optimized** and optimized by doing the following steps.
+
+The first step was to change the memory access of the only input buffer from ```CL_MEM_COPY_HOST_PTR``` to ```CL_MEM_USE_HOST_PTR```.
+THe logic behind this was that copying memory, rather than directly using already allocated memory would be slower.
+After this change a small speed-up of around 15 000 microseconds was observed.
+At this point it was observed that each time the code was run a different speed could be seen.
+Sometimes it was slower, while others it was faster than the original values written down in the previous phase.
+Nevertheless, the speed up from changing the memory access can be positively identified, because the program was run with the original copy method multiple times and even though the speed differed, it was never as fast as in some iterations, where the "use" memory access mode was utilized.
+For the rest of this phase it can be assumed that if an optimization is mentioned, it has been tested multiple times to ensure that it actually has some kind of effect.
+
+Next, the ```calc_zncc``` kernel was updated with openCL math functions. 
+The denominators for the zncc value were initially calculated with the math functions ```pow``` and ```sqrt```.
+However, as it is known that the power will be an integer, the ```pown``` function could be used to optimize the implementation.
+The ```native_powr``` function was attempted, so as to use any native GPU implementations, but this led to the final image not being output correctly.
+However, the ```native_sqrt``` function did work and was used in place of the normal ```sqrt``` function.
+Finally, ```native_divide``` was used to calculate the means and zncc value.
+All of this added an additional speed up of the implementation of around 80 000 microseconds.
+The ZNCC kernel itself was 5 times faster than before.
+
+Any variables that would only be read in the kernels were made ```constant```.
+The ```window_size``` argument in the ZNCC kernel was changed to ```half_window_size``` so that the calculation of the half window size is done only once, outside of the kernel instead of each work item iteration.
+These changes did not bring and noticeable speed-up, but were kept as they seemed like better practice.
+
+
+
+5h
+20:00 
 #TODO: 3D ZNCC Kernel
-#TODO: CL_MEM_USE_HOST_PTR
