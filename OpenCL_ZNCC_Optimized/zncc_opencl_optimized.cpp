@@ -82,6 +82,7 @@ cl::Buffer EnqueueZNCC(const cl::Buffer leftImage,
     cl::Buffer disparityMap(cl_info_obj.context, CL_MEM_READ_WRITE | CL_MEM_HOST_READ_ONLY, sizeof(unsigned int) * (width * height));
     cl::Kernel kernelZNCC(cl_info_obj.program, "calc_zncc");
 
+    // window is halved, so that pixel is in centre of window
     int halfWindowSize = (windowSize - 1) / 2;
 
     // set arguments
@@ -90,9 +91,10 @@ cl::Buffer EnqueueZNCC(const cl::Buffer leftImage,
     kernelZNCC.setArg(2, leftImage);
     kernelZNCC.setArg(3, rightImage);
     kernelZNCC.setArg(4, disparityMap);
+    kernelZNCC.setArg(5, maxDisparity);
 
     // queue the zncc kernel
-    cl_info_obj.queue.enqueueNDRangeKernel(kernelZNCC, cl::NullRange, cl::NDRange(width, height, maxDisparity), cl::NDRange(maxDisparity), 0, &cl_info_obj.profEvent);
+    cl_info_obj.queue.enqueueNDRangeKernel(kernelZNCC, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
     cl_info_obj.profEvent.wait();
 
     // print profiling
@@ -129,21 +131,21 @@ cl::Buffer EnqueueCrossCheck(const cl::Buffer dispMapLeft,
 }
 
 cl::Buffer EnqueueOcclusionFilling(const cl::Buffer crossCheckedImage, 
-    const int width, const int height, const int nCount, const int workGroupSize)
+    const int width, const int height, const int nCount)
 {
     // no buffer created here, as the input image's invalid pixels are filled in directly
     cl::Kernel kernelFilling(cl_info_obj.program, "occlusion_filling");
 
-    if (nCount * nCount > workGroupSize)
+    if (nCount * nCount > cl_info_obj.device.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>())
     {
         std::cout << "Warning: cross-check window size (nCount * nCount) bigger than allowed work group size." << std::endl;
         std::cout << "Possible undefined behavior.Choose smaller nCount." << std::endl;
+        //nCount = cl_info_obj.device.getInfo<CL_DEVICE_MAX_WORK_GROUP_SIZE>()
     }
 
     // set arguments
     kernelFilling.setArg(0, nCount);
-    kernelFilling.setArg(1, workGroupSize * sizeof(int), NULL);
-    kernelFilling.setArg(2, crossCheckedImage);
+    kernelFilling.setArg(1, crossCheckedImage);
 
     // queue the occlusion filling kernel
     cl_info_obj.queue.enqueueNDRangeKernel(kernelFilling, cl::NullRange, cl::NDRange(width, height), cl::NullRange, 0, &cl_info_obj.profEvent);
@@ -189,9 +191,9 @@ int main()
     // To account for this reduction in resolution, we need to adjust the maximum disparity value by the same factor that we used to downsample the image
 
     int ndisp = 260;
-    unsigned int resizeFactor = 4;
+    int resizeFactor = 4;
     int winSize = 11;
-    int neighbours = 32;
+    int neighbours = 8;
     int crossDiff = 32;
 
     // setup inputs and outputs
@@ -281,7 +283,10 @@ int main()
         cl::Context context(devices);
         cl::Program program(context, sources);
 
-        program.build("-cl-std=CL2.0"); //#TODO: note down using 2.0 for atomic
+        int neighbour_size = neighbours * neighbours < devWorkGroupSize ? neighbours * neighbours : devWorkGroupSize;
+
+        std::string str = "-cl-std=CL1.2 -D NEIGHBOUR_SIZE=" + std::to_string(neighbour_size);
+        program.build(str.c_str());
 
         // create command queue with profiling enabled
         cl_command_queue_properties properties[]{ CL_QUEUE_PROPERTIES, CL_QUEUE_PROFILING_ENABLE, 0 };
@@ -327,7 +332,7 @@ int main()
 
         // enqueue occlusion filling
         std::cout << "Applying occlusion filling..." << std::endl;
-        auto outputOcclusionFilling = EnqueueOcclusionFilling(outputCrossCheck, width, height, neighbours, devWorkGroupSize);
+        auto outputOcclusionFilling = EnqueueOcclusionFilling(outputCrossCheck, width, height, neighbours);
 
         //// enqueue normalization
         std::cout << "Applying image normalization..." << std::endl;

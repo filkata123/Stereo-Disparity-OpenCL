@@ -277,33 +277,61 @@ Below, an image that prints out these execution times with information about the
 Implementing the rest of the ZNCC pipeline took 5 hours.
 The phase took in total 13:15 hours
 
-## Phase 5 ()
+## Phase 5 (17h)
 Phase 5 was all about the optimization of the implementation created in the previous phase.
 The code was copied into a new project called **OpenCL_ZNCC_Optimized** and optimized by doing the following steps.
 
 The first step was to change the memory access of the only input buffer from ```CL_MEM_COPY_HOST_PTR``` to ```CL_MEM_USE_HOST_PTR```.
-THe logic behind this was that copying memory, rather than directly using already allocated memory would be slower.
+The logic behind this was that copying memory, rather than directly using already allocated memory would be slower.
 After this change a small speed-up of around 15 000 microseconds was observed.
 At this point it was observed that each time the code was run a different speed could be seen.
 Sometimes it was slower, while others it was faster than the original values written down in the previous phase.
 Nevertheless, the speed up from changing the memory access can be positively identified, because the program was run with the original copy method multiple times and even though the speed differed, it was never as fast as in some iterations, where the "use" memory access mode was utilized.
 For the rest of this phase it can be assumed that if an optimization is mentioned, it has been tested multiple times to ensure that it actually has some kind of effect.
 
-Next, the ```calc_zncc``` kernel was updated with openCL math functions. 
+Next, the ```calc_zncc``` kernel was updated with OpenCL math functions. 
 The denominators for the zncc value were initially calculated with the math functions ```pow``` and ```sqrt```.
 However, as it is known that the power will be an integer, the ```pown``` function could be used to optimize the implementation.
 The ```native_powr``` function was attempted, so as to use any native GPU implementations, but this led to the final image not being output correctly.
 However, the ```native_sqrt``` function did work and was used in place of the normal ```sqrt``` function.
 Finally, ```native_divide``` was used to calculate the means and zncc value.
 All of this added an additional speed up of the implementation of around 80 000 microseconds.
-The ZNCC kernel itself was 5 times faster than before.
+The ZNCC kernel itself was 5 times faster than before. (~5500 microseconds -> ~1500 microseconds)
 
 Any variables that would only be read in the kernels were made ```constant```.
 The ```window_size``` argument in the ZNCC kernel was changed to ```half_window_size``` so that the calculation of the half window size is done only once, outside of the kernel instead of each work item iteration.
 These changes did not bring and noticeable speed-up, but were kept as they seemed like better practice.
 
+Trying to make the ZNCC kernel 3D instead of 2D, by using maxDisparity as the third dimension and creating a work group with the size of maxDisparity was attempted next.
+The idea behind this was that the loop, which calculates the zncc value based on the disparity value could be removed and instead the zncc values could be calculated in parallel.
+A memory block would synchronize the work items and then the zncc values would be compared.
+However, while attempting this some issues were encountered and after discussing with the teacher, this idea was scrapped as the improvement in speed that it would bring was not very apparent and was not worth pursuing.
 
+Loop unrolling with ```#pragma unroll``` was attempted in the kernels, but no optimization was found.
 
-5h
-20:00 
-#TODO: 3D ZNCC Kernel
+The work group size specified in ```enqueueNDRangeKernel``` was also investigated.
+As the kernels were 2D, the work group size had to be specified with 2 dimensions as well. 
+This meant that the common greatest divisor between the width and the height had to be found.
+As the resolution of the images after resizing is 735 x 504, that number would be 21.
+The size of the work group size would be specified as ```cl::NDRange(21, 21)```.
+However, doing this did not bring any optimization, as it can be assumed that OpenCL is smart enough to already select an optimal work group size by itself.
+Interestingly enough, it seemed that OpenCL automatically used 245 as the work group size, which is the greatest divisor of the width only.
+
+A mistake made in the previous phase was also caught in the occlusion filling kernel. 
+Originally, the neighbours array was created as local memory.
+However, this would mean that each work item, would have access to that same memory at the same time, leading to possible racing conditions.
+To amend this, the max work group size was passed as an argument when building the program, effectively acting as a #define, which could then be used to create a variable-length private memory neighbour array for each work item.
+As a negative side-effect, the execution time of this kernel was slowed down quite a lot - from 20 microseconds to 1000 microseconds.
+Nonetheless, this was the correct way to implement this kernel.
+The neighbour count used was 32, which would essentially create a window of size 1024.
+It was discovered, that it was not necessary to use such a big neighbour count and it was downscaled to 8 or a window size of 64.
+This improved the [image](img/cl_depthmap_optimized.png) quality and dropped the execution time to 5 microseconds.
+
+Finally, a bit of optimization (~100 microseconds) was gained by making the left and right mean values in the zncc kernel a ```float2```. 
+This removed the need to use a second ```native_divide``` function, effectively making use of SIMD operations. 
+
+The optimized kernel can be found in [kernels/zncc_kernels_optimized.cl](kernels/zncc_kernels_optimized.cl), while the changed host program can be found in [OpenCL_ZNCC_Optimized/zncc_opencl_optimized.cpp](OpenCL_ZNCC_Optimized/zncc_opencl_optimized.cpp).
+Optimization took around 17 hours in total.
+
+## Phase 6 ()
+#TODO: memory tiling? minimizing memory access, using vector data types and using local memory
