@@ -330,6 +330,24 @@ This improved the [image](img/cl_depthmap_optimized.png) quality and dropped the
 Finally, a bit of optimization (~100 microseconds) was gained by making the left and right mean values in the zncc kernel a ```float2```. 
 This removed the need to use a second ```native_divide``` function, effectively making use of SIMD operations. 
 
+Below an image of the optimized implementation output can be seen.
+
+![](diary_img/OpenCL_execution_optimized.png "Optimized OpenCL ZNCC pipeline cmd output")
+
+Also a table comparing the original and optimized implementations can be seen below.
+
+| Kernel                    | Original Time (microseconds)| Optimized Time (microseconds)|
+| :---                      |    :----:          |    :----:          |
+| convert_grayscale (left)  |  11.9808           |  13.4144         |
+| convert_grayscale (right) |   11.776           |  11.4688           |
+| resize_image (left)       | 14.5408            |  5.7312             |
+| resize_image (right)      |  6.656             |  5.2224              |
+| calc_zncc (left)          | 5976.17            |  1324.44            |
+| calc_zncc (right)         |  6204.21           |  1469.75           |
+| cross_check               | 1.3312             |  1.2288             |
+| occlusion_filling         | 23.1424            |   4.9152             |
+| normalize_to_char         | 0.7168             |  1.7472             |
+
 The optimized kernel can be found in [kernels/zncc_kernels_optimized.cl](kernels/zncc_kernels_optimized.cl), while the changed host program can be found in [OpenCL_ZNCC_Optimized/zncc_opencl_optimized.cpp](OpenCL_ZNCC_Optimized/zncc_opencl_optimized.cpp).
 Optimization took around 17 hours in total.
 
