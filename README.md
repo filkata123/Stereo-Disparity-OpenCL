@@ -351,5 +351,7 @@ Also a table comparing the original and optimized implementations can be seen be
 The optimized kernel can be found in [kernels/zncc_kernels_optimized.cl](kernels/zncc_kernels_optimized.cl), while the changed host program can be found in [OpenCL_ZNCC_Optimized/zncc_opencl_optimized.cpp](OpenCL_ZNCC_Optimized/zncc_opencl_optimized.cpp).
 Optimization took around 17 hours in total.
 
+Video of the program running and producing an output can be seen [here](https://youtu.be/OosTwnsTqM0).
+
 ## Phase 6 ()
 #TODO: memory tiling? minimizing memory access, using vector data types and using local memory
